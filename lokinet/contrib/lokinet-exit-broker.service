@@ -1,0 +1,15 @@
+[Unit]
+Description=Lokinet exit broker: exit broker webapp thing
+Wants=nginx.service
+After=nginx.service
+
+[Service]
+User=nobody
+SyslogIdentifier=lokinet-exit-broker
+EnvironmentFile=/data/lokinet-exit-broker.env
+WorkingDirectory=/var/lib/lokinet-exit-provider
+ExecStart=/usr/bin/gunicorn3 exit_broker:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

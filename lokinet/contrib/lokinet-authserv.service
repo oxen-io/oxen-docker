@@ -1,0 +1,15 @@
+[Unit]
+Description=Lokinet authserv: exit authentication server
+Wants=network.target
+After=network.target
+
+[Service]
+User=nobody
+SyslogIdentifier=lokinet-authserv
+EnvironmentFile=/data/lokinet-exit-broker.env
+WorkingDirectory=/var/lib/lokinet-exit-provider
+ExecStart=/usr/bin/python3 -m lokinet.auth --cmd /var/lib/lokinet-exit-provider/logic.py --bind 10.0.3.1:5555
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
