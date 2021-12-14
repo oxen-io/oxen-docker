@@ -1,9 +1,0 @@
-server {
-	listen 80 default_server;
-	server_name _;
-	location / {
-		# put your reverse proxy settings here
-		proxy_set_header Host $http_host;
-		proxy_pass http://192.168.1.232$request_uri;
-	}
-}
