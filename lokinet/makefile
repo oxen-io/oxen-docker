@@ -7,6 +7,8 @@ lokinet-nginx: lokinet-base test-env
 	$(BUILD_IMAGE) $(REG) $@.dockerfile
 lokinet-exit: lokinet-base test-env
 	$(BUILD_IMAGE) $(REG) $@.dockerfile
+lokinet-exit-custom: lokinet-exit test-env
+	$(BUILD_IMAGE) $(REG) $@.dockerfile
 lokinet-base: test-env
 	$(BUILD_IMAGE) $(REG) $@.dockerfile
 
