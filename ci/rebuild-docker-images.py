@@ -97,7 +97,7 @@ def build_tag(tag_base, arch, contents):
     print()
     linelock.release()
 
-    with tempfile.NamedTemporaryFile() as dockerfile:
+    with tempfile.NamedTemporaryFile(dir='.') as dockerfile:
         dockerfile.write(contents.encode())
         dockerfile.flush()
 
