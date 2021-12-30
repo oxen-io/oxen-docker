@@ -20,7 +20,5 @@ RUN /bin/bash -c 'chmod 700 /usr/local/bin/print-lokinet-address.sh'
 COPY contrib/lokinet.resolveconf.txt /etc/resolv.conf
 RUN /bin/bash -c 'chmod 644 /etc/resolv.conf'
 
-VOLUME [ "/sys/fs/cgroup/systemd" ]
-VOLUME [ "/sys/fs/cgroup/" ]
 STOPSIGNAL SIGRTMIN+3
-ENTRYPOINT ["/sbin/init", "verbose", "systemd.unified_cgroup_hierarchy=false"]
+ENTRYPOINT ["/sbin/init", "verbose", "systemd.unified_cgroup_hierarchy=0", "systemd.legacy_systemd_cgroup_controller=0"]
