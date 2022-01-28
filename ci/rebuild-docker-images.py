@@ -15,6 +15,9 @@ parser.add_option("--parallel", "-j", type="int", default=1,
 parser.add_option("--distro", type="string", default="",
                   help="Build only this distro; should be DISTRO-CODE or DISTRO-CODE/ARCH, "
                        "e.g. debian-sid/amd64")
+parser.add_option('--no-push', action="store_true",
+                  help="push built images to docker repository")
+
 (options, args) = parser.parse_args()
 
 registry_base = 'registry.oxen.rocks/lokinet-ci-'
@@ -105,8 +108,11 @@ def build_tag(tag_base, arch, contents):
         print_line(myline, "\033[33;1mRebuilding     \033[35;1m{}\033[0m".format(tag))
         run_or_report('docker', 'build', '--pull', '-f', dockerfile.name, '-t', tag,
                       *(('--no-cache',) if options.no_cache else ()), '.', myline=myline)
-        print_line(myline, "\033[33;1mPushing        \033[35;1m{}\033[0m".format(tag))
-        run_or_report('docker', 'push', tag, myline=myline)
+        if options.no_push:
+            print_line(myline, "\033[33;1mSkip Push      \033[35;1m{}\033[0m".format(tag))
+        else:
+            print_line(myline, "\033[33;1mPushing        \033[35;1m{}\033[0m".format(tag))
+            run_or_report('docker', 'push', tag, myline=myline)
         print_line(myline, "\033[32;1mFinished build \033[35;1m{}\033[0m".format(tag))
 
         latest = tag_base + ':latest'
@@ -327,6 +333,9 @@ print("\n\n\033[32;1mAll builds finished successfully; pushing manifests...\033[
 
 
 def push_manifest(latest, tags):
+    if options.no_push:
+        return
+    
     if failure:
         raise ChildProcessError()
 
