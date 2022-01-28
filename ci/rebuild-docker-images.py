@@ -200,11 +200,21 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         patch \
         pkg-config \
         pybind11-dev \
+        python3-coloredlogs \
+        python3-cryptography \
         python3-dev \
+        python3-flask \
+        python3-nacl \
+        python3-openssl \
+        python3-pil \
         python3-pip \
+        python3-protobuf \
         python3-pybind11 \
         python3-pytest \
+        python3-qrencode \
         python3-setuptools \
+        python3-sqlalchemy \
+        python3-uwsgidecorators \
         qttools5-dev \
         {hacks}
 """.format(**fmtargs, hacks=hacks.get(prefix, '')))
