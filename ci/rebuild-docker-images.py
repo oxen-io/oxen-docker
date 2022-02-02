@@ -300,6 +300,22 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
 """)
 
 
+def debian_cross_build(distro=['debian', 'stable'],
+                       cross_targets=('aarch64-linux-gnu',
+                                      'arm-linux-gnueabihf',
+                                      'mips-linux-gnu',
+                                      'mips64-linux-gnuabi64',
+                                      'mipsel-linux-gnu',
+                                      'powerpc64le-linux-gnu')):
+    """ build debian cross compiler image """
+    arch='amd64'
+    prefix = f'{registry_base}{distro[0]}-{distro[1]}'
+    build_tag(prefix + '-cross-builder', arch, """
+FROM {prefix}-builder/{arch}
+RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
+    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
+    && apt-get -o=Dpkg::Use-Pty=0 --no-install-recommends -q install -y {compilers}""".format(prefix=prefix, arch=arch, hacks=hacks.get(prefix + '-builder', ''), compilers=' '.join([f'g++-{arch} gcc-{arch}' for arch in cross_targets])))
+
 # Start debian-stable-base/amd64 on its own, because other builds depend on it and we want to get
 # those (especially android/flutter) fired off as soon as possible (because it's slow and huge).
 if ('debian', 'stable') in distros:
@@ -315,6 +331,9 @@ else:
 for d in distros:
     for a in arches(d):
         jobs.append(executor.submit(distro_build, d, a))
+if len(distros) > 0:
+    jobs.append(executor.submit(debian_cross_build))
+
 while len(jobs):
     j = jobs.pop(0)
     try:
