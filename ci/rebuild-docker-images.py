@@ -311,10 +311,10 @@ def debian_cross_build(distro=['debian', 'stable'],
     arch='amd64'
     prefix = f'{registry_base}{distro[0]}-{distro[1]}'
     build_tag(prefix + '-cross-builder', arch, """
-FROM {prefix}-builder/{arch}
+FROM {prefix}/{arch}
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 --no-install-recommends -q install -y {compilers}""".format(prefix=prefix, arch=arch, hacks=hacks.get(prefix + '-builder', ''), compilers=' '.join([f'g++-{arch} gcc-{arch}' for arch in cross_targets])))
+    && apt-get -o=Dpkg::Use-Pty=0 --no-install-recommends -q install -y {compilers}""".format(prefix=prefix, arch=arch, compilers=' '.join([f'g++-{arch} gcc-{arch}' for arch in cross_targets])))
 
 # Start debian-stable-base/amd64 on its own, because other builds depend on it and we want to get
 # those (especially android/flutter) fired off as soon as possible (because it's slow and huge).
@@ -328,11 +328,13 @@ if options.distro:
 else:
     jobs = [executor.submit(b) for b in (android_builds, lint_build, nodejs_build)]
 
+build_cross = False
+
 for d in distros:
     for a in arches(d):
+        if d[0] == 'debian' and d[1] == 'stable' and a == 'amd64':
+            build_cross = True
         jobs.append(executor.submit(distro_build, d, a))
-if len(distros) > 0:
-    jobs.append(executor.submit(debian_cross_build))
 
 while len(jobs):
     j = jobs.pop(0)
@@ -342,6 +344,8 @@ while len(jobs):
         for k in jobs:
             k.cancel()
 
+if build_cross:
+    debian_cross_build()
 
 if failure:
     print("Error(s) occured, aborting!", file=sys.stderr)
@@ -354,7 +358,7 @@ print("\n\n\033[32;1mAll builds finished successfully; pushing manifests...\033[
 def push_manifest(latest, tags):
     if options.no_push:
         return
-    
+
     if failure:
         raise ChildProcessError()
 
