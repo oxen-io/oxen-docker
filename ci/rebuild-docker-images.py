@@ -310,11 +310,11 @@ def debian_cross_build(distro=['debian', 'stable'],
     """ build debian cross compiler image """
     arch='amd64'
     prefix = f'{registry_base}{distro[0]}-{distro[1]}'
-    build_tag(prefix + '-cross-builder', arch, """
+    build_tag(prefix + '-cross', arch, """
 FROM {prefix}/{arch}
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 --no-install-recommends -q install -y {compilers}""".format(prefix=prefix, arch=arch, compilers=' '.join([f'g++-{arch} gcc-{arch}' for arch in cross_targets])))
+    && apt-get -o=Dpkg::Use-Pty=0 -q install -y {compilers}""".format(prefix=prefix, arch=arch, compilers=' '.join([f'g++-{arch} gcc-{arch}' for arch in cross_targets])))
 
 # Start debian-stable-base/amd64 on its own, because other builds depend on it and we want to get
 # those (especially android/flutter) fired off as soon as possible (because it's slow and huge).
