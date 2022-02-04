@@ -317,8 +317,8 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q install -y {compilers}""".format(prefix=prefix, arch=arch, compilers=' '.join([f'g++-{arch} gcc-{arch}' for arch in cross_targets])))
 
 def build_docs(distro=['debian', 'stable'],
-               apt_packages=('doxygen', 'python3-pip', 'python3-breathe', 'python3-sphinx-rtd-theme'),
-               pip_packages=['exhale']
+               apt_packages=('doxygen', 'mkdocs'),
+               pip_packages=[]
                ):
     """ documentation builder image """
     arch='amd64'
@@ -328,8 +328,7 @@ FROM {prefix}/{arch}
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q install -y {apt_packages}
-RUN /usr/bin/pip3 install {pip_packages}
-""".format(prefix=prefix, arch=arch, apt_packages=' '.join(apt_packages), pip_packages=' '.join(pip_packages)))
+""".format(prefix=prefix, arch=arch, apt_packages=' '.join(apt_packages)))
 
 # Start debian-stable-base/amd64 on its own, because other builds depend on it and we want to get
 # those (especially android/flutter) fired off as soon as possible (because it's slow and huge).
