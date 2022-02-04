@@ -317,9 +317,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q install -y {compilers}""".format(prefix=prefix, arch=arch, compilers=' '.join([f'g++-{arch} gcc-{arch}' for arch in cross_targets])))
 
 def build_docs(distro=['debian', 'stable'],
-               apt_packages=('doxygen', 'mkdocs'),
-               pip_packages=[]
-               ):
+               apt_packages=('doxygen', 'mkdocs', 'curl', 'zip', 'unzip', 'tar')):
     """ documentation builder image """
     arch='amd64'
     prefix = f'{registry_base}{distro[0]}-{distro[1]}'
@@ -328,6 +326,14 @@ FROM {prefix}/{arch}
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q install -y {apt_packages}
+
+RUN git clone --recursive https://github.com/matusnovak/doxybook2 /usr/local/src/doxybook2 \
+   && git clone https://github.com/microsoft/vcpkg /usr/local/src/vcpkg \
+   && /usr/local/src/vcpkg/bootstrap-vcpkg.sh \
+   && /usr/local/src/vcpkg/vcpkg install --triplet x64-linux $(cat /usr/local/src/doxybook2/vcpkg.txt) \
+   && cmake -S /usr/local/src/doxybook2 -B /usr/local/src/doxybook2/build -DCMAKE_TOOLCHAIN_FILE=/usr/local/src/vcpkg/scripts/buildsystems/vcpkg.cmake \
+   && make -C /usr/local/src/doxybook2/build install -j$(nproc) \
+   && rm -rf /usr/local/src/doxybook2 /usr/local/src/vcpkg
 """.format(prefix=prefix, arch=arch, apt_packages=' '.join(apt_packages)))
 
 # Start debian-stable-base/amd64 on its own, because other builds depend on it and we want to get
