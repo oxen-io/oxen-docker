@@ -316,6 +316,21 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q install -y {compilers}""".format(prefix=prefix, arch=arch, compilers=' '.join([f'g++-{arch} gcc-{arch}' for arch in cross_targets])))
 
+def build_docs(distro=['debian', 'stable'],
+               apt_packages=('doxygen', 'python3-pip', 'python3-breathe', 'python3-sphinx-rtd-theme'),
+               pip_packages=['exhale']
+               ):
+    """ documentation builder image """
+    arch='amd64'
+    prefix = f'{registry_base}{distro[0]}-{distro[1]}'
+    build_tag(f'{registry_base}docbuilder', arch, """
+FROM {prefix}/{arch}
+RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
+    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
+    && apt-get -o=Dpkg::Use-Pty=0 -q install -y {apt_packages}
+RUN /usr/bin/pip3 install {pip_packages}
+""".format(prefix=prefix, arch=arch, apt_packages=' '.join(apt_packages), pip_packages=' '.join(pip_packages)))
+
 # Start debian-stable-base/amd64 on its own, because other builds depend on it and we want to get
 # those (especially android/flutter) fired off as soon as possible (because it's slow and huge).
 if ('debian', 'stable') in distros:
@@ -346,6 +361,7 @@ while len(jobs):
 
 if build_cross:
     debian_cross_build()
+    build_docs()
 
 if failure:
     print("Error(s) occured, aborting!", file=sys.stderr)
