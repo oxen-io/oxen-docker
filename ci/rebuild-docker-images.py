@@ -40,10 +40,10 @@ manifestlock = threading.Lock()
 def arches(distro):
     if options.distro and '/' in options.distro:
         arch = options.distro.split('/')
-        if arch not in ('amd64', 'i386', 'arm64v8', 'arm32v7'):
+        if arch[1] not in ('amd64', 'i386', 'arm64v8', 'arm32v7'):
             print("Bad --distro value '{}'".format(options.distro), file=sys.stderr)
             sys.exit(1)
-        return [arch]
+        return [arch[1]]
 
     a = ['amd64', 'arm64v8', 'arm32v7']
     if distro[0] == 'debian' or distro == ('ubuntu', 'bionic'):
@@ -223,6 +223,19 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         python3-uwsgidecorators \
         qttools5-dev \
         {hacks}
+""".format(**fmtargs, hacks=hacks.get(prefix, '')))
+
+    # For debian-sid/amd64 we also build an extra one with clang+llvm
+    if (distro, arch) == (('debian', 'sid'), 'amd64'):
+        build_tag(prefix + '-clang', arch, """
+FROM {prefix}/{arch}
+RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
+    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
+    && apt-get -o=Dpkg::Use-Pty=0 --no-install-recommends -q install -y \
+        clang \
+        lld \
+        libc++-dev \
+        libc++abi-dev
 """.format(**fmtargs, hacks=hacks.get(prefix, '')))
 
 
