@@ -313,6 +313,34 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
 """)
 
 
+def debian_win32_cross():
+    build_tag(f'{registry_base}debian-win32-cross', 'amd64', f"""
+FROM {registry_base}debian-stable-base/amd64
+RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
+        autoconf \
+        automake \
+        build-essential \
+        ccache \
+        cmake \
+        eatmydata \
+        file \
+        g++-mingw-w64-x86-64 \
+        git \
+        gperf \
+        libtool \
+        make \
+        ninja-build \
+        nsis \
+        openssh-client \
+        patch \
+        pkg-config \
+        qttools5-dev \
+        zip \
+    && update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix \
+    && update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+""")
+
+
 def debian_cross_build(distro=['debian', 'stable'],
                        cross_targets=('aarch64-linux-gnu',
                                       'arm-linux-gnueabihf',
@@ -359,7 +387,7 @@ executor = ThreadPoolExecutor(max_workers=max(options.parallel, 1))
 if options.distro:
     jobs = []
 else:
-    jobs = [executor.submit(b) for b in (android_builds, lint_build, nodejs_build)]
+    jobs = [executor.submit(b) for b in (android_builds, lint_build, nodejs_build, debian_win32_cross)]
 
 build_cross = False
 
