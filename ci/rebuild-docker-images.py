@@ -238,6 +238,11 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         libc++abi-dev
 """.format(**fmtargs, hacks=hacks.get(prefix, '')))
 
+    # Debian stable amd64 add-on builds:
+    if (distro, arch) == (('debian', 'stable'), 'amd64'):
+        debian_cross_build()
+        build_docs()
+
 
 # Android and flutter builds on top of debian-stable-base and adds a ton of android crap; we
 # schedule this job as soon as the debian-sid-base/amd64 build finishes, because they easily take
@@ -313,6 +318,34 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
 """)
 
 
+def debian_win32_cross():
+    build_tag(f'{registry_base}debian-win32-cross', 'amd64', f"""
+FROM {registry_base}debian-stable-base/amd64
+RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
+        autoconf \
+        automake \
+        build-essential \
+        ccache \
+        cmake \
+        eatmydata \
+        file \
+        g++-mingw-w64-x86-64 \
+        git \
+        gperf \
+        libtool \
+        make \
+        ninja-build \
+        nsis \
+        openssh-client \
+        patch \
+        pkg-config \
+        qttools5-dev \
+        zip \
+    && update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix \
+    && update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+""")
+
+
 def debian_cross_build(distro=['debian', 'stable'],
                        cross_targets=('aarch64-linux-gnu',
                                       'arm-linux-gnueabihf',
@@ -359,14 +392,10 @@ executor = ThreadPoolExecutor(max_workers=max(options.parallel, 1))
 if options.distro:
     jobs = []
 else:
-    jobs = [executor.submit(b) for b in (android_builds, lint_build, nodejs_build)]
-
-build_cross = False
+    jobs = [executor.submit(b) for b in (android_builds, lint_build, nodejs_build, debian_win32_cross)]
 
 for d in distros:
     for a in arches(d):
-        if d[0] == 'debian' and d[1] == 'stable' and a == 'amd64':
-            build_cross = True
         jobs.append(executor.submit(distro_build, d, a))
 
 while len(jobs):
@@ -376,10 +405,6 @@ while len(jobs):
     except (ChildProcessError, subprocess.CalledProcessError):
         for k in jobs:
             k.cancel()
-
-if build_cross:
-    debian_cross_build()
-    build_docs()
 
 if failure:
     print("Error(s) occured, aborting!", file=sys.stderr)
