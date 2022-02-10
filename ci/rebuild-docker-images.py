@@ -238,6 +238,11 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         libc++abi-dev
 """.format(**fmtargs, hacks=hacks.get(prefix, '')))
 
+    # Debian stable amd64 add-on builds:
+    if (distro, arch) == (('debian', 'stable'), 'amd64'):
+        debian_cross_build()
+        build_docs()
+
 
 # Android and flutter builds on top of debian-stable-base and adds a ton of android crap; we
 # schedule this job as soon as the debian-sid-base/amd64 build finishes, because they easily take
@@ -389,12 +394,8 @@ if options.distro:
 else:
     jobs = [executor.submit(b) for b in (android_builds, lint_build, nodejs_build, debian_win32_cross)]
 
-build_cross = False
-
 for d in distros:
     for a in arches(d):
-        if d[0] == 'debian' and d[1] == 'stable' and a == 'amd64':
-            build_cross = True
         jobs.append(executor.submit(distro_build, d, a))
 
 while len(jobs):
@@ -404,10 +405,6 @@ while len(jobs):
     except (ChildProcessError, subprocess.CalledProcessError):
         for k in jobs:
             k.cancel()
-
-if build_cross:
-    debian_cross_build()
-    build_docs()
 
 if failure:
     print("Error(s) occured, aborting!", file=sys.stderr)
