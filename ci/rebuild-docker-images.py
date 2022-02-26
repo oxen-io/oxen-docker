@@ -174,6 +174,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         automake \
         ccache \
         cmake \
+        curl \
         eatmydata \
         g++ \
         gdb \
@@ -205,6 +206,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         openssh-client \
         patch \
         pkg-config \
+        postgresql-client \
         pybind11-dev \
         python3-coloredlogs \
         python3-cryptography \
@@ -215,13 +217,18 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         python3-pil \
         python3-pip \
         python3-protobuf \
+        python3-psycopg2 \
         python3-pybind11 \
+        python3-pycryptodome \
         python3-pytest \
         python3-qrencode \
         python3-setuptools \
         python3-sqlalchemy \
+        python3-sqlalchemy-utils \
+        python3-tabulate \
         python3-uwsgidecorators \
         qttools5-dev \
+        sqlite3 \
         {hacks}
 """.format(**fmtargs, hacks=hacks.get(prefix, '')))
 
