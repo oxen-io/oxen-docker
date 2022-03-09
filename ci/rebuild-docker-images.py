@@ -280,14 +280,13 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && cp -a /tmp/android-sdk-licenses/*-license /usr/lib/android-sdk/licenses \
     && rm -rf /tmp/android-sdk-licenses
 """.format(r=registry_base))
-
     build_tag(registry_base + 'flutter', 'amd64', """
 FROM {r}android
 RUN cd /opt \
-    && curl https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_2.2.2-stable.tar.xz \
+    && curl https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_2.10.3-stable.tar.xz \
         | tar xJv \
     && ln -s /opt/flutter/bin/flutter /usr/local/bin/ \
-    && flutter precache
+    && flutter upgrade && flutter precache
 """.format(r=registry_base))
 
 
