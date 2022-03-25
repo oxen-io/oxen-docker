@@ -388,10 +388,36 @@ RUN git clone --recursive https://github.com/matusnovak/doxybook2 /usr/local/src
    && rm -rf /usr/local/src/doxybook2 /usr/local/src/vcpkg
 """.format(prefix=prefix, arch=arch, apt_packages=' '.join(apt_packages)))
 
+
+def push_manifest(latest, tags):
+    if options.no_push:
+        return
+
+    if failure:
+        raise ChildProcessError()
+
+    linelock.acquire()
+    global lineno
+    myline = lineno
+    lineno += 1
+    print()
+    linelock.release()
+
+    subprocess.run(['docker', 'manifest', 'rm', latest], stderr=subprocess.DEVNULL, check=False)
+    print_line(myline, "\033[33;1mCreating manifest \033[35;1m{}\033[0m".format(latest))
+    run_or_report('docker', 'manifest', 'create', latest, *tags, myline=myline)
+    print_line(myline, "\033[33;1mPushing manifest  \033[35;1m{}\033[0m".format(latest))
+    run_or_report('docker', 'manifest', 'push', latest, myline=myline)
+    print_line(myline, "\033[32;1mFinished manifest \033[35;1m{}\033[0m".format(latest))
+
+
 # Start debian-stable-base/amd64 on its own, because other builds depend on it and we want to get
 # those (especially android/flutter) fired off as soon as possible (because it's slow and huge).
 if ('debian', 'stable') in distros:
     base_distro_build(['debian', 'stable'], 'amd64')
+    for latest, tags in manifests.items():
+        push_manifest(latest, tags)
+    manifests.clear()
 
 executor = ThreadPoolExecutor(max_workers=max(options.parallel, 1))
 
@@ -418,28 +444,6 @@ if failure:
 
 
 print("\n\n\033[32;1mAll builds finished successfully; pushing manifests...\033[0m\n")
-
-
-def push_manifest(latest, tags):
-    if options.no_push:
-        return
-
-    if failure:
-        raise ChildProcessError()
-
-    linelock.acquire()
-    global lineno
-    myline = lineno
-    lineno += 1
-    print()
-    linelock.release()
-
-    subprocess.run(['docker', 'manifest', 'rm', latest], stderr=subprocess.DEVNULL, check=False)
-    print_line(myline, "\033[33;1mCreating manifest \033[35;1m{}\033[0m".format(latest))
-    run_or_report('docker', 'manifest', 'create', latest, *tags, myline=myline)
-    print_line(myline, "\033[33;1mPushing manifest  \033[35;1m{}\033[0m".format(latest))
-    run_or_report('docker', 'manifest', 'push', latest, myline=myline)
-    print_line(myline, "\033[32;1mFinished manifest \033[35;1m{}\033[0m".format(latest))
 
 
 for latest, tags in manifests.items():
