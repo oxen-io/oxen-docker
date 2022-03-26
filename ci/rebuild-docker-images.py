@@ -28,7 +28,7 @@ distros = [*(('debian', x) for x in ('sid', 'stable', 'testing', 'bullseye', 'bu
 if options.distro:
     d = options.distro.split('-')
     if len(d) != 2 or d[0] not in ('debian', 'ubuntu') or not d[1]:
-        print("Bad --distro value '{}'".format(options.distro), file=sys.stderr)
+        print(f"Bad --distro value '{options.distro}'", file=sys.stderr)
         sys.exit(1)
     distros = [(d[0], d[1].split('/')[0])]
 
@@ -36,12 +36,16 @@ if options.distro:
 manifests = {}  # "image:latest": ["image/amd64", "image/arm64v8", ...]
 manifestlock = threading.Lock()
 
+dep_jobs = {}  # image => [remaining_jobs, queue_dep_jobs_callbacks...]
+cancel_jobs = False
+jobs_lock = threading.Lock()
+
 
 def arches(distro):
     if options.distro and '/' in options.distro:
         arch = options.distro.split('/')
         if arch[1] not in ('amd64', 'i386', 'arm64v8', 'arm32v7'):
-            print("Bad --distro value '{}'".format(options.distro), file=sys.stderr)
+            print(f"Bad --distro value '{options.distro}'", file=sys.stderr)
             sys.exit(1)
         return [arch[1]]
 
@@ -68,7 +72,7 @@ def print_line(myline, value):
     global lineno
     if sys.__stdout__.isatty():
         jump = lineno - myline
-        print("\033[{jump}A\r\033[K{value}\033[{jump}B\r".format(jump=jump, value=value), end='')
+        print(f"\033[{jump}A\r\033[K{value}\033[{jump}B\r", end='')
         sys.stdout.flush()
     else:
         print(value)
@@ -81,15 +85,15 @@ def run_or_report(*args, myline):
             args, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf8')
     except subprocess.CalledProcessError as e:
         with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as log:
-            log.write("Error running {}: {}\n\nOutput:\n\n".format(' '.join(args), e).encode())
+            log.write(f"Error running {' '.join(args)}: {e}\n\nOutput:\n\n".encode())
             log.write(e.output.encode())
             global failure
             failure = True
-            print_line(myline, "\033[31;1mError! See {} for details".format(log.name))
+            print_line(myline, f"\033[31;1mError! See {log.name} for details")
             raise e
 
 
-def build_tag(tag_base, arch, contents):
+def build_tag(tag_base, arch, contents, *, manifest_now=False):
     if failure:
         raise ChildProcessError()
 
@@ -104,53 +108,84 @@ def build_tag(tag_base, arch, contents):
         dockerfile.write(contents.encode())
         dockerfile.flush()
 
-        tag = '{}/{}'.format(tag_base, arch)
-        print_line(myline, "\033[33;1mRebuilding     \033[35;1m{}\033[0m".format(tag))
+        tag = f'{tag_base}/{arch}'
+        print_line(myline,     f"\033[33;1mRebuilding        \033[35;1m{tag}\033[0m")
         run_or_report('docker', 'build', '--pull', '-f', dockerfile.name, '-t', tag,
                       *(('--no-cache',) if options.no_cache else ()), '.', myline=myline)
         if options.no_push:
-            print_line(myline, "\033[33;1mSkip Push      \033[35;1m{}\033[0m".format(tag))
+            print_line(myline, f"\033[33;1mSkip Push         \033[35;1m{tag}\033[0m")
         else:
-            print_line(myline, "\033[33;1mPushing        \033[35;1m{}\033[0m".format(tag))
+            print_line(myline, f"\033[33;1mPushing           \033[35;1m{tag}\033[0m")
             run_or_report('docker', 'push', tag, myline=myline)
-        print_line(myline, "\033[32;1mFinished build \033[35;1m{}\033[0m".format(tag))
+
+        print_line(myline,     f"\033[32;1mFinished build    \033[35;1m{tag}\033[0m")
 
         latest = tag_base + ':latest'
         global manifests
-        manifestlock.acquire()
-        if latest in manifests:
-            manifests[latest].append(tag)
+        with manifestlock:
+            if latest in manifests:
+                manifests[latest].append(tag)
+            else:
+                manifests[latest] = [tag]
+
+        if manifest_now:
+            push_manifest(tag_base)
+
+
+def check_done_build(tag):
+    """
+    Check if we're done build all the arch builds for 'tag' and if so, push the manifest and then
+    start dependent jobs (if any).
+    """
+    done, depjobs = False, []
+    with jobs_lock:
+        if tag not in dep_jobs:
+            done = True
         else:
-            manifests[latest] = [tag]
-        manifestlock.release()
+            deps = dep_jobs[tag]
+            assert deps[0] > 0
+            deps[0] -= 1
+            if deps[0] == 0:
+                done = True
+                depjobs = deps[1:]
+
+    if done:
+        push_manifest(tag)
+
+        if depjobs:
+            for q in depjobs:
+                q()
 
 
-def base_distro_build(distro, arch):
-    tag = '{r}{distro[0]}-{distro[1]}-base'.format(r=registry_base, distro=distro)
+def distro_build_base(distro, arch, *, initial_debian_stable=False):
+    skip_build = (distro, arch) == (('debian', 'stable'), 'amd64') and not initial_debian_stable
+
+    tag = f'{registry_base}{distro[0]}-{distro[1]}-base'
     codename = 'latest' if distro == ('ubuntu', 'lts') else distro[1]
-    build_tag(tag, arch, """
-FROM {}/{}:{}
+    if not skip_build:
+        build_tag(tag, arch, f"""
+FROM {arch}/{distro[0]}:{codename}
 RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q autoremove -y \
-        {hacks}
-""".format(arch, distro[0], codename, hacks=hacks.get(tag, '')))
+        {hacks.get(tag, '')}
+""", manifest_now=initial_debian_stable)
+
+    if not initial_debian_stable:
+        check_done_build(tag)
 
 
-def distro_build(distro, arch):
-    prefix = '{r}{distro[0]}-{distro[1]}'.format(r=registry_base, distro=distro)
-    fmtargs = dict(arch=arch, distro=distro, prefix=prefix)
-
-    # (distro)-(codename)-base: Base image from upstream: we sync the repos, but do nothing else.
-    if (distro, arch) != (('debian', 'stable'), 'amd64'):  # debian-stable-base/amd64 already built
-        base_distro_build(distro, arch)
-
-    # (distro)-(codename)-builder: Deb builder image used for building debs; we add the basic tools
-    # we use to build debs, not including things that should come from the dependencies in the
-    # debian/control file.
-    build_tag(prefix + '-builder', arch, """
-FROM {prefix}-base/{arch}
+def distro_build_builder(distro, arch):
+    """
+    (distro)-(codename)-builder: Deb builder image used for building debs; we add the basic tools we
+    use to build debs, not including things that should come from the dependencies in the
+    debian/control file.
+    """
+    base = f'{registry_base}{distro[0]}-{distro[1]}-base'
+    tag = f'{registry_base}{distro[0]}-{distro[1]}-builder'
+    build_tag(tag, arch, f"""
+FROM {base}/{arch}
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 --no-install-recommends -q install -y \
@@ -161,13 +196,21 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         git \
         git-buildpackage \
         openssh-client \
-        {hacks}
-""".format(**fmtargs, hacks=hacks.get(prefix + '-builder', '')))
+        {hacks.get(tag, '')}
+""")
 
-    # (distro)-(codename): Basic image we use for most builds.  This takes the -builder and adds
-    # most dependencies found in our packages.
-    build_tag(prefix, arch, """
-FROM {prefix}-builder/{arch}
+    check_done_build(tag)
+
+
+def distro_build(distro, arch):
+    """
+    (distro)-(codename): Basic image we use for most builds.  This takes the -builder and adds most
+    dependencies found in our packages.
+    """
+    builder = f'{registry_base}{distro[0]}-{distro[1]}-builder'
+    tag = f'{registry_base}{distro[0]}-{distro[1]}'
+    build_tag(tag, arch, f"""
+FROM {builder}/{arch}
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 --no-install-recommends -q install -y \
@@ -229,13 +272,18 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         python3-uwsgidecorators \
         qttools5-dev \
         sqlite3 \
-        {hacks}
-""".format(**fmtargs, hacks=hacks.get(prefix, '')))
+        {hacks.get(tag, '')}
+""")
 
-    # For debian-sid/amd64 we also build an extra one with clang+llvm
-    if (distro, arch) == (('debian', 'sid'), 'amd64'):
-        build_tag(prefix + '-clang', arch, """
-FROM {prefix}/{arch}
+    check_done_build(tag)
+
+
+def debian_clang_build():
+    """For debian-sid/amd64 we also build an extra one with clang+llvm"""
+
+    tag = f'{registry_base}debian-sid-clang'
+    build_tag(tag, 'amd64', f"""
+FROM {registry_base}debian-sid/amd64
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 --no-install-recommends -q install -y \
@@ -243,20 +291,15 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         lld \
         libc++-dev \
         libc++abi-dev
-""".format(**fmtargs, hacks=hacks.get(prefix, '')))
-
-    # Debian stable amd64 add-on builds:
-    if (distro, arch) == (('debian', 'stable'), 'amd64'):
-        debian_cross_build()
-        build_docs()
+""", manifest_now=True)
 
 
 # Android and flutter builds on top of debian-stable-base and adds a ton of android crap; we
 # schedule this job as soon as the debian-sid-base/amd64 build finishes, because they easily take
 # the longest and are by far the biggest images.
 def android_builds():
-    build_tag(registry_base + 'android', 'amd64', """
-FROM {r}debian-stable-base
+    build_tag(registry_base + 'android', 'amd64', f"""
+FROM {registry_base}debian-stable-base
 RUN /bin/bash -c 'sed -i "s/main/main contrib/g" /etc/apt/sources.list'
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
@@ -279,27 +322,27 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && git clone https://github.com/Shadowstyler/android-sdk-licenses.git /tmp/android-sdk-licenses \
     && cp -a /tmp/android-sdk-licenses/*-license /usr/lib/android-sdk/licenses \
     && rm -rf /tmp/android-sdk-licenses
-""".format(r=registry_base))
-    build_tag(registry_base + 'flutter', 'amd64', """
-FROM {r}android
+""", manifest_now=True)
+    build_tag(registry_base + 'flutter', 'amd64', f"""
+FROM {registry_base}android
 RUN cd /opt \
     && curl https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_2.10.3-stable.tar.xz \
         | tar xJv \
     && ln -s /opt/flutter/bin/flutter /usr/local/bin/ \
     && flutter upgrade && flutter precache
-""".format(r=registry_base))
+""", manifest_now=True)
 
 
 # lint is a tiny build (on top of debian-stable-base) with just formatting checking tools
 def lint_build():
-    build_tag(registry_base + 'lint', 'amd64', """
-FROM {r}debian-stable-base
+    build_tag(registry_base + 'lint', 'amd64', f"""
+FROM {registry_base}debian-stable-base
 RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
     clang-format-11 \
     eatmydata \
     git \
     jsonnet
-""".format(r=registry_base))
+""", manifest_now=True)
 
 
 def nodejs_build():
@@ -321,7 +364,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         patch \
         pkg-config \
         wine
-""")
+""", manifest_now=True)
 
 
 def debian_win32_cross():
@@ -349,35 +392,32 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
         zip \
     && update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix \
     && update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
-""")
+""", manifest_now=True)
 
 
-def debian_cross_build(distro=['debian', 'stable'],
-                       cross_targets=('aarch64-linux-gnu',
-                                      'arm-linux-gnueabihf',
-                                      'mips-linux-gnu',
-                                      'mips64-linux-gnuabi64',
-                                      'mipsel-linux-gnu',
-                                      'powerpc64le-linux-gnu')):
+def debian_cross_build():
     """ build debian cross compiler image """
-    arch='amd64'
-    prefix = f'{registry_base}{distro[0]}-{distro[1]}'
-    build_tag(prefix + '-cross', arch, """
-FROM {prefix}/{arch}
-RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
-    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 -q install -y {compilers}""".format(prefix=prefix, arch=arch, compilers=' '.join([f'g++-{arch} gcc-{arch}' for arch in cross_targets])))
+    tag = f'{registry_base}debian-stable-cross'
+    compilers = ' '.join(f'g++-{a} gcc-{a}' for a in (
+        'aarch64-linux-gnu', 'arm-linux-gnueabihf', 'mips-linux-gnu', 'mips64-linux-gnuabi64',
+        'mipsel-linux-gnu', 'powerpc64le-linux-gnu'))
 
-def build_docs(distro=['debian', 'stable'],
-               apt_packages=('doxygen', 'mkdocs', 'curl', 'zip', 'unzip', 'tar')):
-    """ documentation builder image """
-    arch='amd64'
-    prefix = f'{registry_base}{distro[0]}-{distro[1]}'
-    build_tag(f'{registry_base}docbuilder', arch, """
-FROM {prefix}/{arch}
+    build_tag(tag, 'amd64', f"""
+FROM {registry_base}debian-stable/amd64
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 -q install -y {apt_packages}
+    && apt-get -o=Dpkg::Use-Pty=0 -q install -y {compilers}
+""", manifest_now=True)
+
+
+def build_docs():
+    """ documentation builder image """
+
+    build_tag(f'{registry_base}docbuilder', 'amd64', f"""
+FROM {registry_base}debian-stable/amd64
+RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
+    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
+    && apt-get -o=Dpkg::Use-Pty=0 -q install -y doxygen mkdocs curl zip unzip tar
 
 RUN git clone --recursive https://github.com/matusnovak/doxybook2 /usr/local/src/doxybook2 \
    && git clone https://github.com/microsoft/vcpkg /usr/local/src/vcpkg \
@@ -386,38 +426,37 @@ RUN git clone --recursive https://github.com/matusnovak/doxybook2 /usr/local/src
    && cmake -S /usr/local/src/doxybook2 -B /usr/local/src/doxybook2/build -DCMAKE_TOOLCHAIN_FILE=/usr/local/src/vcpkg/scripts/buildsystems/vcpkg.cmake \
    && make -C /usr/local/src/doxybook2/build install -j$(nproc) \
    && rm -rf /usr/local/src/doxybook2 /usr/local/src/vcpkg
-""".format(prefix=prefix, arch=arch, apt_packages=' '.join(apt_packages)))
+""", manifest_now=True)
 
 
-def push_manifest(latest, tags):
+def push_manifest(image):
     if options.no_push:
         return
 
     if failure:
         raise ChildProcessError()
 
-    linelock.acquire()
-    global lineno
-    myline = lineno
-    lineno += 1
-    print()
-    linelock.release()
+    latest = image + ':latest'
+    with manifestlock:
+        tags = list(manifests[latest])
+    with linelock:
+        global lineno
+        myline = lineno
+        lineno += 1
+        print()
 
     subprocess.run(['docker', 'manifest', 'rm', latest], stderr=subprocess.DEVNULL, check=False)
-    print_line(myline, "\033[33;1mCreating manifest \033[35;1m{}\033[0m".format(latest))
+    print_line(myline, f"\033[33;1mCreating manifest \033[35;1m{latest}\033[0m")
     run_or_report('docker', 'manifest', 'create', latest, *tags, myline=myline)
-    print_line(myline, "\033[33;1mPushing manifest  \033[35;1m{}\033[0m".format(latest))
+    print_line(myline, f"\033[33;1mPushing manifest  \033[35;1m{latest}\033[0m")
     run_or_report('docker', 'manifest', 'push', latest, myline=myline)
-    print_line(myline, "\033[32;1mFinished manifest \033[35;1m{}\033[0m".format(latest))
+    print_line(myline, f"\033[32;1mFinished manifest \033[35;1m{latest}\033[0m")
 
 
 # Start debian-stable-base/amd64 on its own, because other builds depend on it and we want to get
 # those (especially android/flutter) fired off as soon as possible (because it's slow and huge).
 if ('debian', 'stable') in distros:
-    base_distro_build(['debian', 'stable'], 'amd64')
-    for latest, tags in manifests.items():
-        push_manifest(latest, tags)
-    manifests.clear()
+    distro_build_base(['debian', 'stable'], 'amd64', initial_debian_stable=True)
 
 executor = ThreadPoolExecutor(max_workers=max(options.parallel, 1))
 
@@ -426,36 +465,61 @@ if options.distro:
 else:
     jobs = [executor.submit(b) for b in (android_builds, lint_build, nodejs_build, debian_win32_cross)]
 
-for d in distros:
-    for a in arches(d):
-        jobs.append(executor.submit(distro_build, d, a))
+with jobs_lock:
+    # We do some basic dependency handling here: we start off all the -base images right away, then
+    # schedule -builder to follow once -base is done on *all* arches (and the manifest pushed), then
+    # the unsuffixed once -builder is done on all arches with manifest pushed.
+    #
+    # Docker sucks balls, though, so if anything goes wrong you'll just get some useless error about
+    # the manifest not existing (you also sometimes just get that randomly as a failure as well,
+    # because docker).
 
-while len(jobs):
-    j = jobs.pop(0)
+    for d in distros:
+        archlist = arches(d)
+        def next_wave(build_func):
+            dist = d
+            arches = archlist
+            def f():
+                with jobs_lock:
+                    for a in arches:
+                        jobs.append(executor.submit(build_func, dist, a))
+            return f
+        def next_singleton(build_func):
+            def f():
+                with jobs_lock:
+                    jobs.append(executor.submit(build_func))
+            return f
+
+        prefix = f"{registry_base}{d[0]}-{d[1]}"
+        dep_jobs[prefix + "-base"] = [len(archlist), next_wave(distro_build_builder)]
+        dep_jobs[prefix + "-builder"] = [len(archlist), next_wave(distro_build)]
+        dep_jobs[prefix] = [len(archlist)]
+        if d == ('debian', 'stable') and 'amd64' in archlist:
+            dep_jobs[prefix].extend(next_singleton(f) for f in (debian_cross_build, build_docs))
+        if d == ('debian', 'sid') and 'amd64' in archlist:
+            dep_jobs[prefix].append(next_singleton(debian_clang_build))
+
+        for a in archlist:
+            jobs.append(executor.submit(distro_build_base, d, a))
+
+while True:
+    with jobs_lock:
+        if not jobs:
+            break
+        j = jobs.pop(0)
+
     try:
         j.result()
     except (ChildProcessError, subprocess.CalledProcessError):
-        for k in jobs:
-            k.cancel()
+        with jobs_lock:
+            failure = True
+            dep_jobs.clear()
+            for k in jobs:
+                k.cancel()
 
 if failure:
     print("Error(s) occured, aborting!", file=sys.stderr)
     sys.exit(1)
-
-
-print("\n\n\033[32;1mAll builds finished successfully; pushing manifests...\033[0m\n")
-
-
-for latest, tags in manifests.items():
-    jobs.append(executor.submit(push_manifest, latest, tags))
-
-while len(jobs):
-    j = jobs.pop(0)
-    try:
-        j.result()
-    except (ChildProcessError, subprocess.CalledProcessError):
-        for k in jobs:
-            k.cancel()
 
 
 print("\n\n\033[32;1mAll done!\n")
