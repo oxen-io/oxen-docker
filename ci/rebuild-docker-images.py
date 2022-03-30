@@ -23,7 +23,7 @@ parser.add_option('--no-push', action="store_true",
 registry_base = 'registry.oxen.rocks/lokinet-ci-'
 
 distros = [*(('debian', x) for x in ('sid', 'stable', 'testing', 'bullseye', 'buster')),
-           *(('ubuntu', x) for x in ('rolling', 'lts', 'impish', 'hirsute', 'focal', 'bionic'))]
+           *(('ubuntu', x) for x in ('rolling', 'lts', 'jammy', 'impish', 'focal', 'bionic'))]
 
 if options.distro:
     d = options.distro.split('-')
