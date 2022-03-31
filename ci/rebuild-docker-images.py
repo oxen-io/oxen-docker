@@ -363,8 +363,9 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         openssh-client \
         patch \
         pkg-config \
-        wine
+        wine64
 """, manifest_now=True)
+
 
 
 def debian_win32_cross():
