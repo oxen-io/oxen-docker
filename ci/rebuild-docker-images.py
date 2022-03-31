@@ -25,12 +25,18 @@ registry_base = 'registry.oxen.rocks/lokinet-ci-'
 distros = [*(('debian', x) for x in ('sid', 'stable', 'testing', 'bullseye', 'buster')),
            *(('ubuntu', x) for x in ('rolling', 'lts', 'jammy', 'impish', 'focal', 'bionic'))]
 
+rebuild_nodejs = False
+
 if options.distro:
     d = options.distro.split('-')
-    if len(d) != 2 or d[0] not in ('debian', 'ubuntu') or not d[1]:
+    if len(d) == 1 and d[0] == 'nodejs':
+        distros = []
+        rebuild_nodejs = True
+    elif len(d) != 2 or d[0] not in ('debian', 'ubuntu') or not d[1]:
         print(f"Bad --distro value '{options.distro}'", file=sys.stderr)
         sys.exit(1)
-    distros = [(d[0], d[1].split('/')[0])]
+    else:
+        distros = [(d[0], d[1].split('/')[0])]
 
 
 manifests = {}  # "image:latest": ["image/amd64", "image/arm64v8", ...]
@@ -463,6 +469,8 @@ executor = ThreadPoolExecutor(max_workers=max(options.parallel, 1))
 
 if options.distro:
     jobs = []
+    if rebuild_nodejs:
+        jobs.append(executor.submit(nodejs_build))
 else:
     jobs = [executor.submit(b) for b in (android_builds, lint_build, nodejs_build, debian_win32_cross)]
 
