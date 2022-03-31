@@ -353,8 +353,9 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
 
 def nodejs_build():
     build_tag(registry_base + 'nodejs', 'amd64', """
-FROM node:14.16.1
+FROM node:bullseye
 RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
+RUN /bin/bash -c 'dpkg --add-architecture i386 && wget -nc https://dl.winehq.org/wine-builds/winehq.key -O /tmp/winehq.key && apt-key add /tmp/winehq.key && rm -f /tmp/winehq.key && echo "deb https://dl.winehq.org/wine-builds/debian/ bullseye main" > /etc/apt/sources.list.d/winehq.list'
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
@@ -369,7 +370,8 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         openssh-client \
         patch \
         pkg-config \
-        wine64
+    && apt-get -o=Dpkg::Use-Pty=0 -q install --install-recommends -y wine-stable \
+    && ln -s /opt/wine-stable/bin/wine64 /usr/bin/wine && ln -s /opt/wine-stable/bin/winecfg /usr/bin/winecfg
 """, manifest_now=True)
 
 
