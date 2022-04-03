@@ -370,6 +370,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         openssh-client \
         patch \
         pkg-config \
+        rpm \
     && apt-get -o=Dpkg::Use-Pty=0 -q install --install-recommends -y wine-stable \
     && ln -s /opt/wine-stable/bin/wine64 /usr/bin/wine && ln -s /opt/wine-stable/bin/winecfg /usr/bin/winecfg
 """, manifest_now=True)
