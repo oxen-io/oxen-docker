@@ -12,7 +12,7 @@ parser.add_option("--no-cache", action="store_true",
                   help="Run `docker build` with the `--no-cache` option to ignore existing images")
 parser.add_option("--parallel", "-j", type="int", default=1,
                   help="Run up to this many builds in parallel")
-parser.add_option("--distro", type="string", default="",
+parser.add_option("--distro", "-d", type="string", default="",
                   help="Build only this distro; should be DISTRO-CODE or DISTRO-CODE/ARCH, "
                        "e.g. debian-sid/amd64")
 parser.add_option('--no-push', action="store_true",
