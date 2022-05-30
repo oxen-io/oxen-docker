@@ -62,8 +62,11 @@ def arches(distro):
 
 
 hacks = {
-    registry_base + 'ubuntu-bionic-builder': """g++-8 \
-            && mkdir -p /usr/lib/x86_64-linux-gnu/pgm-5.2/include""",
+    registry_base + 'ubuntu-bionic-builder': """g++-8 gpg wget \
+            && mkdir -p /usr/lib/x86_64-linux-gnu/pgm-5.2/include \
+    && wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null \
+    && apt-get -o=Dpkg::Use-Pty=0 -q update \
+    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y """,
 }
 
 
