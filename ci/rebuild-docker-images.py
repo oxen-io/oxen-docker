@@ -23,16 +23,13 @@ parser.add_option('--no-push', action="store_true",
 registry_base = 'registry.oxen.rocks/lokinet-ci-'
 
 distros = [*(('debian', x) for x in ('sid', 'stable', 'testing', 'bookworm', 'bullseye', 'buster')),
-           *(('ubuntu', x) for x in ('rolling', 'lts', 'kinetic', 'jammy', 'focal', 'bionic'))]
-
-rebuild_nodejs = False
+           *(('ubuntu', x) for x in ('rolling', 'lts', 'kinetic', 'jammy', 'focal', 'bionic')),
+           *(('nodejs', x) for x in ('lts', 'current', '18', '16', '14')),
+           ]
 
 if options.distro:
     d = options.distro.split('-')
-    if len(d) == 1 and d[0] == 'nodejs':
-        distros = []
-        rebuild_nodejs = True
-    elif len(d) != 2 or d[0] not in ('debian', 'ubuntu') or not d[1]:
+    if len(d) != 2 or d[0] not in ('debian', 'ubuntu', 'nodejs') or not d[1]:
         print(f"Bad --distro value '{options.distro}'", file=sys.stderr)
         sys.exit(1)
     else:
@@ -57,7 +54,7 @@ def arches(distro):
 
     a = ['amd64', 'arm64v8', 'arm32v7']
     if distro[0] == 'debian' or distro == ('ubuntu', 'bionic'):
-        a.append('i386')  # i386 builds don't work on later ubuntu
+        a.append('i386')  # i386 builds don't work on later ubuntu, or on nodejs
     return a
 
 
@@ -354,11 +351,21 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
 """, manifest_now=True)
 
 
-def nodejs_build():
-    build_tag(registry_base + 'nodejs', 'amd64', """
-FROM node:bullseye
+def nodejs_build(distro, arch):
+    wine_repo, wine_install = """
+RUN dpkg --add-architecture i386 \
+        && wget -nc -O /usr/share/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key \
+        && wget -nc -P /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/debian/dists/bullseye/winehq-bullseye.sources
+""", """ \
+    && apt-get -o=Dpkg::Use-Pty=0 -q install --install-recommends -y wine-stable \
+    && ln -s /opt/wine-stable/bin/wine64 /usr/bin/wine && ln -s /opt/wine-stable/bin/winecfg /usr/bin/winecfg
+"""
+
+    tag = f"{registry_base}{distro[0]}-{distro[1]}"
+    build_tag(tag, arch, f"""
+FROM node:{distro[1]}-bullseye
 RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
-RUN /bin/bash -c 'dpkg --add-architecture i386 && wget -nc https://dl.winehq.org/wine-builds/winehq.key -O /tmp/winehq.key && apt-key add /tmp/winehq.key && rm -f /tmp/winehq.key && echo "deb https://dl.winehq.org/wine-builds/debian/ bullseye main" > /etc/apt/sources.list.d/winehq.list'
+{wine_repo if arch == 'amd64' else ''}
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
@@ -374,9 +381,9 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         patch \
         pkg-config \
         rpm \
-    && apt-get -o=Dpkg::Use-Pty=0 -q install --install-recommends -y wine-stable \
-    && ln -s /opt/wine-stable/bin/wine64 /usr/bin/wine && ln -s /opt/wine-stable/bin/winecfg /usr/bin/winecfg
-""", manifest_now=True)
+{wine_install if arch == 'amd64' else ''}
+""")
+    check_done_build(tag)
 
 
 
@@ -475,10 +482,8 @@ executor = ThreadPoolExecutor(max_workers=max(options.parallel, 1))
 
 if options.distro:
     jobs = []
-    if rebuild_nodejs:
-        jobs.append(executor.submit(nodejs_build))
 else:
-    jobs = [executor.submit(b) for b in (android_builds, lint_build, nodejs_build, debian_win32_cross)]
+    jobs = [executor.submit(b) for b in (android_builds, lint_build, debian_win32_cross)]
 
 with jobs_lock:
     # We do some basic dependency handling here: we start off all the -base images right away, then
@@ -506,16 +511,20 @@ with jobs_lock:
             return f
 
         prefix = f"{registry_base}{d[0]}-{d[1]}"
-        dep_jobs[prefix + "-base"] = [len(archlist), next_wave(distro_build_builder)]
-        dep_jobs[prefix + "-builder"] = [len(archlist), next_wave(distro_build)]
         dep_jobs[prefix] = [len(archlist)]
-        if d == ('debian', 'stable') and 'amd64' in archlist:
-            dep_jobs[prefix].extend(next_singleton(f) for f in (debian_cross_build, build_docs))
-        if d == ('debian', 'sid') and 'amd64' in archlist:
-            dep_jobs[prefix].append(next_singleton(debian_clang_build))
+        if d[0] == 'nodejs':
+            build_func = nodejs_build
+        else:
+            build_func = distro_build_base
+            dep_jobs[prefix + "-base"] = [len(archlist), next_wave(distro_build_builder)]
+            dep_jobs[prefix + "-builder"] = [len(archlist), next_wave(distro_build)]
+            if d == ('debian', 'stable') and 'amd64' in archlist:
+                dep_jobs[prefix].extend(next_singleton(f) for f in (debian_cross_build, build_docs))
+            if d == ('debian', 'sid') and 'amd64' in archlist:
+                dep_jobs[prefix].append(next_singleton(debian_clang_build))
 
         for a in archlist:
-            jobs.append(executor.submit(distro_build_base, d, a))
+            jobs.append(executor.submit(build_func, d, a))
 
 while True:
     with jobs_lock:
