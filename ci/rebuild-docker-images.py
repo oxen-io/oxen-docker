@@ -363,7 +363,7 @@ RUN dpkg --add-architecture i386 \
 
     tag = f"{registry_base}{distro[0]}-{distro[1]}"
     build_tag(tag, arch, f"""
-FROM node:{distro[1]}-bullseye
+FROM {arch}/node:{distro[1]}-bullseye
 RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
 {wine_repo if arch == 'amd64' else ''}
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
