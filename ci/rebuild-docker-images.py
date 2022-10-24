@@ -352,20 +352,11 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
 
 
 def nodejs_build(distro, arch):
-    wine_repo, wine_install = """
-RUN dpkg --add-architecture i386 \
-        && wget -nc -O /usr/share/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key \
-        && wget -nc -P /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/debian/dists/bullseye/winehq-bullseye.sources
-""", """ \
-    && apt-get -o=Dpkg::Use-Pty=0 -q install --install-recommends -y wine-stable \
-    && ln -s /opt/wine-stable/bin/wine64 /usr/bin/wine && ln -s /opt/wine-stable/bin/winecfg /usr/bin/winecfg
-"""
-
     tag = f"{registry_base}{distro[0]}-{distro[1]}"
     build_tag(tag, arch, f"""
 FROM {arch}/node:{distro[1]}-bullseye
 RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
-{wine_repo if arch == 'amd64' else ''}
+{'RUN dpkg --add-architecture i386' if arch == 'amd64' else ''}
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
@@ -381,7 +372,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         patch \
         pkg-config \
         rpm \
-{wine_install if arch == 'amd64' else ''}
+        {'wine32 wine' if arch == 'amd64' else ''}
 """)
     check_done_build(tag)
 
