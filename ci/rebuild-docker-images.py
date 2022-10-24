@@ -339,12 +339,12 @@ RUN cd /opt \
 """, manifest_now=True)
 
 
-# lint is a tiny build (on top of debian-stable-base) with just formatting checking tools
+# lint is a tiny build (on top of debian-bookworm-base) with just formatting checking tools
 def lint_build():
     build_tag(registry_base + 'lint', 'amd64', f"""
-FROM {registry_base}debian-stable-base
+FROM {registry_base}debian-bookworm-base
 RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
-    clang-format-11 \
+    clang-format-14 \
     eatmydata \
     git \
     jsonnet
