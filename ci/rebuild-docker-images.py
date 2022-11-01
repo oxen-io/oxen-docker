@@ -429,14 +429,6 @@ FROM {registry_base}debian-stable/amd64
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q install -y doxygen mkdocs curl zip unzip tar
-
-RUN git clone --recursive https://github.com/matusnovak/doxybook2 /usr/local/src/doxybook2 \
-   && git clone https://github.com/microsoft/vcpkg /usr/local/src/vcpkg \
-   && /usr/local/src/vcpkg/bootstrap-vcpkg.sh \
-   && /usr/local/src/vcpkg/vcpkg install --triplet x64-linux $(cat /usr/local/src/doxybook2/vcpkg.txt) \
-   && cmake -S /usr/local/src/doxybook2 -B /usr/local/src/doxybook2/build -DCMAKE_TOOLCHAIN_FILE=/usr/local/src/vcpkg/scripts/buildsystems/vcpkg.cmake \
-   && make -C /usr/local/src/doxybook2/build install -j$(nproc) \
-   && rm -rf /usr/local/src/doxybook2 /usr/local/src/vcpkg
 """, manifest_now=True)
 
 
