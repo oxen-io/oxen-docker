@@ -25,7 +25,7 @@ RUN DEBIAN_FRONTEND=noninteractive \
 
 
 # print lokinet util
-COPY --chmod=700 contrib/print-lokinet-address.sh /usr/local/bin/print-lokinet-address.sh
+COPY --chmod=755 contrib/print-lokinet-address.sh /usr/local/bin/print-lokinet-address.sh
 
 # dns
 COPY --chmod=644 contrib/lokinet.resolveconf.txt /etc/resolv.conf
