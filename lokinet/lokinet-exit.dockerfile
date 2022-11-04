@@ -10,8 +10,8 @@ COPY --chmod=700 contrib/lokinet-exit-rc.local.sh /etc/rc.local
 COPY --chmod=700 contrib/print-lokinet-address.sh /usr/local/bin/print-lokinet-address.sh
 
 # setup cron jobs
-COPY --chmod=700 contrib/lokinet-kill-scans.sh /usr/local/bin/lokinet-kill-scans.sh
-COPY --chmod=700 contrib/lokinet-update-exit-address.sh /usr/local/bin/lokinet-update-exit-address.sh
+COPY --chmod=700 contrib/lokinet-kill-scans.sh /usr/local/sbin/lokinet-kill-scans.sh
+COPY --chmod=700 contrib/lokinet-update-exit-address.sh /usr/local/sbin/lokinet-update-exit-address.sh
 
 COPY --chmod=644 contrib/lokinet-exit.crontab /etc/cron.d/lokinet-exit
 
