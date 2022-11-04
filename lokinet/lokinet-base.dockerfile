@@ -1,7 +1,7 @@
 #use argument instead of lsb-release
 ARG DEBIAN_RELEASE=bullseye 
 
-FROM debian:${DEBIAN_RELEASE} AS lokinet-base
+FROM debian:${DEBIAN_RELEASE}-slim AS lokinet-base
 ENV container docker
 
 ENV RELEASE=${DEBIAN_RELEASE:-bullseye}
@@ -15,7 +15,7 @@ RUN DEBIAN_FRONTEND=noninteractive \
     && echo "man-db man-db/auto-update boolean false" | debconf-set-selections \
     && apt update -y \
     && apt full-upgrade -y \
-    && apt install -y --no-install-recommends ca-certificates curl iptables dnsutils lsb-release systemd systemd-sysv cron conntrack iproute2 python3-pip wget \
+    && apt install -y --no-install-recommends ca-certificates iptables dnsutils systemd systemd-sysv cron conntrack iproute2 python3-pip \
     && apt update -y \    
     && apt install -y --no-install-recommends lokinet \
     && apt-get clean \
