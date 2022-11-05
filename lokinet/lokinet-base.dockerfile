@@ -9,15 +9,14 @@ ENV RELEASE=${DEBIAN_RELEASE:-bullseye}
 ADD --chmod=644 --chown=_apt https://deb.oxen.io/pub.gpg /etc/apt/trusted.gpg.d/lokinet.gpg
 
 # set up packages
-# not sure if wget, lsb-release and curl are needed (maybe they can be removed to make a smaller image?)
 RUN DEBIAN_FRONTEND=noninteractive \
     && echo "deb https://deb.oxen.io ${RELEASE} main" > /etc/apt/sources.list.d/lokinet.list \     
     && echo "man-db man-db/auto-update boolean false" | debconf-set-selections \
-    && apt update -y \
-    && apt full-upgrade -y \
-    && apt install -y --no-install-recommends ca-certificates iptables dnsutils systemd systemd-sysv cron conntrack iproute2 python3-pip \
-    && apt update -y \    
-    && apt install -y --no-install-recommends lokinet \
+    && apt-get update -y \
+    && apt-get dist-upgrade -y \
+    && apt-get install -y --no-install-recommends ca-certificates iptables dnsutils systemd systemd-sysv cron conntrack iproute2 \
+    && apt-get update -y \    
+    && apt-get install -y --no-install-recommends lokinet \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /var/lib/lokinet/conf.d \
