@@ -345,6 +345,7 @@ def lint_build():
 FROM {registry_base}debian-bookworm-base
 RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
     clang-format-14 \
+    clang-format-15 \
     eatmydata \
     git \
     jsonnet
