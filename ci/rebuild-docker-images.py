@@ -163,8 +163,10 @@ def check_done_build(tag):
                 q()
 
 
-def distro_build_base(distro, arch, *, initial_debian_stable=False):
-    skip_build = (distro, arch) == (('debian', 'stable'), 'amd64') and not initial_debian_stable
+def distro_build_base(distro, arch, *, initial_debian=False):
+    skip_build = not initial_debian and (distro, arch) in [
+            (('debian', 'stable'), 'amd64'),
+            (('debian', 'bookworm'), 'amd64')]
 
     tag = f'{registry_base}{distro[0]}-{distro[1]}-base'
     codename = 'latest' if distro == ('ubuntu', 'lts') else distro[1]
@@ -176,9 +178,9 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q autoremove -y \
         {hacks.get(tag, '')}
-""", manifest_now=initial_debian_stable)
+""", manifest_now=initial_debian)
 
-    if not initial_debian_stable:
+    if not initial_debian:
         check_done_build(tag)
 
 
@@ -457,12 +459,37 @@ def push_manifest(image):
     print_line(myline, f"\033[32;1mFinished manifest \033[35;1m{latest}\033[0m")
 
 
-# Start debian-stable-base/amd64 on its own, because other builds depend on it and we want to get
-# those (especially android/flutter) fired off as soon as possible (because it's slow and huge).
-if ('debian', 'stable') in distros:
-    distro_build_base(['debian', 'stable'], 'amd64', initial_debian_stable=True)
+
+def finish_jobs():
+    while True:
+        with jobs_lock:
+            if not jobs:
+                break
+            j = jobs.pop(0)
+
+        try:
+            j.result()
+        except (ChildProcessError, subprocess.CalledProcessError):
+            with jobs_lock:
+                failure = True
+                dep_jobs.clear()
+                for k in jobs:
+                    k.cancel()
+
 
 executor = ThreadPoolExecutor(max_workers=max(options.parallel, 1))
+jobs = []
+
+
+# Start debian-stable-base/amd64 and debian-bookworm-base on their own, because other builds depend
+# on them and we want to get those (especially android/flutter) fired off as soon as possible
+# (because it's slow and huge).
+with jobs_lock:
+    for base in (('debian', 'stable'), ('debian', 'bookworm')):
+        if base in distros:
+            jobs.append(executor.submit(distro_build_base, base, 'amd64', initial_debian=True))
+
+finish_jobs()
 
 if options.distro:
     jobs = []
@@ -510,20 +537,7 @@ with jobs_lock:
         for a in archlist:
             jobs.append(executor.submit(build_func, d, a))
 
-while True:
-    with jobs_lock:
-        if not jobs:
-            break
-        j = jobs.pop(0)
-
-    try:
-        j.result()
-    except (ChildProcessError, subprocess.CalledProcessError):
-        with jobs_lock:
-            failure = True
-            dep_jobs.clear()
-            for k in jobs:
-                k.cancel()
+finish_jobs()
 
 if failure:
     print("Error(s) occured, aborting!", file=sys.stderr)
