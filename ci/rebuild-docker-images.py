@@ -334,8 +334,8 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     build_tag(registry_base + 'flutter', 'amd64', f"""
 FROM {registry_base}android
 RUN cd /opt \
-    && curl https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_2.10.3-stable.tar.xz \
-        | tar xJv \
+    && curl https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.7.8-stable.tar.xz \
+        | tar xJv --no-same-owner \
     && ln -s /opt/flutter/bin/flutter /usr/local/bin/ \
     && flutter upgrade && flutter precache
 """, manifest_now=True)
