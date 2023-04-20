@@ -337,7 +337,7 @@ RUN cd /opt \
     && curl https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.7.8-stable.tar.xz \
         | tar xJv --no-same-owner \
     && ln -s /opt/flutter/bin/flutter /usr/local/bin/ \
-    && flutter upgrade && flutter precache
+    && flutter upgrade --force && flutter precache
 """, manifest_now=True)
 
 
