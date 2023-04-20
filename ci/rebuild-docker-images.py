@@ -85,10 +85,10 @@ def print_line(myline, value):
     linelock.release()
 
 
-def run_or_report(*args, myline):
+def run_or_report(*args, myline, cwd=None):
     try:
         subprocess.run(
-            args, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf8')
+            args, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf8', cwd=cwd)
     except subprocess.CalledProcessError as e:
         with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as log:
             log.write(f"Error running {' '.join(args)}: {e}\n\nOutput:\n\n".encode())
@@ -110,14 +110,14 @@ def build_tag(tag_base, arch, contents, *, manifest_now=False):
     print()
     linelock.release()
 
-    with tempfile.NamedTemporaryFile(dir='.') as dockerfile:
-        dockerfile.write(contents.encode())
-        dockerfile.flush()
+    with tempfile.TemporaryDirectory(dir='.') as dockerdir:
+        with open(dockerdir + '/dockerfile', 'w') as f:
+            f.write(contents)
 
         tag = f'{tag_base}/{arch}'
         print_line(myline,     f"\033[33;1mRebuilding        \033[35;1m{tag}\033[0m")
-        run_or_report('docker', 'build', '--pull', '-f', dockerfile.name, '-t', tag,
-                      *(('--no-cache',) if options.no_cache else ()), '.', myline=myline)
+        run_or_report('docker', 'build', '--pull', '-f', 'dockerfile', '-t', tag,
+                      *(('--no-cache',) if options.no_cache else ()), '.', myline=myline, cwd=dockerdir)
         if options.no_push:
             print_line(myline, f"\033[33;1mSkip Push         \033[35;1m{tag}\033[0m")
         else:
