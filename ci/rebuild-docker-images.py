@@ -111,12 +111,12 @@ def build_tag(tag_base, arch, contents, *, manifest_now=False):
     linelock.release()
 
     with tempfile.TemporaryDirectory(dir='.') as dockerdir:
-        with open(dockerdir + '/dockerfile', 'w') as f:
+        with open(dockerdir + '/Dockerfile', 'w') as f:
             f.write(contents)
 
         tag = f'{tag_base}/{arch}'
         print_line(myline,     f"\033[33;1mRebuilding        \033[35;1m{tag}\033[0m")
-        run_or_report('docker', 'build', '--pull', '-f', 'dockerfile', '-t', tag,
+        run_or_report('docker', 'build', '--pull', '-t', tag,
                       *(('--no-cache',) if options.no_cache else ()), '.', myline=myline, cwd=dockerdir)
         if options.no_push:
             print_line(myline, f"\033[33;1mSkip Push         \033[35;1m{tag}\033[0m")
