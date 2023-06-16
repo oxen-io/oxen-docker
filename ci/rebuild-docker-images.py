@@ -308,7 +308,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
 def android_builds():
     build_tag(registry_base + 'android', 'amd64', f"""
 FROM {registry_base}debian-stable-base
-RUN /bin/bash -c 'sed -i "s/main/main contrib/g" /etc/apt/sources.list'
+RUN /bin/bash -c 'sed -i "s/main/main non-free/g" /etc/apt/sources.list.d/debian.sources'
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
@@ -318,7 +318,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         cmake \
         curl \
         git \
-        google-android-ndk-installer \
+        google-android-ndk-r25c-installer \
         libtool \
         make \
         openssh-client \
