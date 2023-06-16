@@ -409,6 +409,14 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
 """, manifest_now=True)
 
 
+# Same as above, plus wine
+def debian_win32_cross_wine():
+    build_tag(f'{registry_base}debian-win32-cross-wine', 'amd64', f"""
+FROM {registry_base}debian-win32-cross/amd64
+RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y wine
+""", manifest_now=True)
+
+
 def debian_cross_build():
     """ build debian cross compiler image """
     tag = f'{registry_base}debian-stable-cross'
@@ -494,7 +502,7 @@ finish_jobs()
 if options.distro:
     jobs = []
 else:
-    jobs = [executor.submit(b) for b in (android_builds, lint_build, debian_win32_cross)]
+    jobs = [executor.submit(b) for b in (android_builds, lint_build, debian_win32_cross, debian_win32_cross_wine)]
 
 with jobs_lock:
     # We do some basic dependency handling here: we start off all the -base images right away, then
