@@ -23,8 +23,8 @@ parser.add_option('--no-push', action="store_true",
 registry_base = 'registry.oxen.rocks/lokinet-ci-'
 
 distros = [*(('debian', x) for x in ('sid', 'stable', 'testing', 'bookworm', 'bullseye', 'buster')),
-           *(('ubuntu', x) for x in ('rolling', 'lts', 'kinetic', 'jammy', 'focal', 'bionic')),
-           *(('nodejs', x) for x in ('lts', 'current', '18', '16', '14')),
+           *(('ubuntu', x) for x in ('rolling', 'lts', 'lunar', 'kinetic', 'jammy', 'focal', 'bionic')),
+           *(('nodejs', x) for x in ('lts', 'current', '20', '18', '16', '14')),
            ]
 
 if options.distro:
@@ -85,10 +85,10 @@ def print_line(myline, value):
     linelock.release()
 
 
-def run_or_report(*args, myline):
+def run_or_report(*args, myline, cwd=None):
     try:
         subprocess.run(
-            args, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf8')
+            args, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf8', cwd=cwd)
     except subprocess.CalledProcessError as e:
         with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as log:
             log.write(f"Error running {' '.join(args)}: {e}\n\nOutput:\n\n".encode())
@@ -110,14 +110,14 @@ def build_tag(tag_base, arch, contents, *, manifest_now=False):
     print()
     linelock.release()
 
-    with tempfile.NamedTemporaryFile(dir='.') as dockerfile:
-        dockerfile.write(contents.encode())
-        dockerfile.flush()
+    with tempfile.TemporaryDirectory(dir='.') as dockerdir:
+        with open(dockerdir + '/Dockerfile', 'w') as f:
+            f.write(contents)
 
         tag = f'{tag_base}/{arch}'
         print_line(myline,     f"\033[33;1mRebuilding        \033[35;1m{tag}\033[0m")
-        run_or_report('docker', 'build', '--pull', '-f', dockerfile.name, '-t', tag,
-                      *(('--no-cache',) if options.no_cache else ()), '.', myline=myline)
+        run_or_report('docker', 'build', '--pull', '-t', tag,
+                      *(('--no-cache',) if options.no_cache else ()), '.', myline=myline, cwd=dockerdir)
         if options.no_push:
             print_line(myline, f"\033[33;1mSkip Push         \033[35;1m{tag}\033[0m")
         else:
@@ -163,8 +163,10 @@ def check_done_build(tag):
                 q()
 
 
-def distro_build_base(distro, arch, *, initial_debian_stable=False):
-    skip_build = (distro, arch) == (('debian', 'stable'), 'amd64') and not initial_debian_stable
+def distro_build_base(distro, arch, *, initial_debian=False):
+    skip_build = not initial_debian and (distro, arch) in [
+            (('debian', 'stable'), 'amd64'),
+            (('debian', 'bookworm'), 'amd64')]
 
     tag = f'{registry_base}{distro[0]}-{distro[1]}-base'
     codename = 'latest' if distro == ('ubuntu', 'lts') else distro[1]
@@ -176,9 +178,9 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q autoremove -y \
         {hacks.get(tag, '')}
-""", manifest_now=initial_debian_stable)
+""", manifest_now=initial_debian)
 
-    if not initial_debian_stable:
+    if not initial_debian:
         check_done_build(tag)
 
 
@@ -306,7 +308,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
 def android_builds():
     build_tag(registry_base + 'android', 'amd64', f"""
 FROM {registry_base}debian-stable-base
-RUN /bin/bash -c 'sed -i "s/main/main contrib/g" /etc/apt/sources.list'
+RUN /bin/bash -c 'sed -i "s/main/main non-free/g" /etc/apt/sources.list.d/debian.sources'
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
@@ -316,7 +318,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         cmake \
         curl \
         git \
-        google-android-ndk-installer \
+        google-android-ndk-r25c-installer \
         libtool \
         make \
         openssh-client \
@@ -332,10 +334,10 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     build_tag(registry_base + 'flutter', 'amd64', f"""
 FROM {registry_base}android
 RUN cd /opt \
-    && curl https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_2.10.3-stable.tar.xz \
-        | tar xJv \
+    && curl https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.7.8-stable.tar.xz \
+        | tar xJv --no-same-owner \
     && ln -s /opt/flutter/bin/flutter /usr/local/bin/ \
-    && flutter upgrade && flutter precache
+    && flutter upgrade --force && flutter precache
 """, manifest_now=True)
 
 
@@ -407,6 +409,14 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
 """, manifest_now=True)
 
 
+# Same as above, plus wine
+def debian_win32_cross_wine():
+    build_tag(f'{registry_base}debian-win32-cross-wine', 'amd64', f"""
+FROM {registry_base}debian-win32-cross/amd64
+RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y wine
+""", manifest_now=True)
+
+
 def debian_cross_build():
     """ build debian cross compiler image """
     tag = f'{registry_base}debian-stable-cross'
@@ -457,17 +467,42 @@ def push_manifest(image):
     print_line(myline, f"\033[32;1mFinished manifest \033[35;1m{latest}\033[0m")
 
 
-# Start debian-stable-base/amd64 on its own, because other builds depend on it and we want to get
-# those (especially android/flutter) fired off as soon as possible (because it's slow and huge).
-if ('debian', 'stable') in distros:
-    distro_build_base(['debian', 'stable'], 'amd64', initial_debian_stable=True)
+
+def finish_jobs():
+    while True:
+        with jobs_lock:
+            if not jobs:
+                break
+            j = jobs.pop(0)
+
+        try:
+            j.result()
+        except (ChildProcessError, subprocess.CalledProcessError):
+            with jobs_lock:
+                failure = True
+                dep_jobs.clear()
+                for k in jobs:
+                    k.cancel()
+
 
 executor = ThreadPoolExecutor(max_workers=max(options.parallel, 1))
+jobs = []
+
+
+# Start debian-stable-base/amd64 and debian-bookworm-base on their own, because other builds depend
+# on them and we want to get those (especially android/flutter) fired off as soon as possible
+# (because it's slow and huge).
+with jobs_lock:
+    for base in (('debian', 'stable'), ('debian', 'bookworm')):
+        if base in distros:
+            jobs.append(executor.submit(distro_build_base, base, 'amd64', initial_debian=True))
+
+finish_jobs()
 
 if options.distro:
     jobs = []
 else:
-    jobs = [executor.submit(b) for b in (android_builds, lint_build, debian_win32_cross)]
+    jobs = [executor.submit(b) for b in (android_builds, lint_build, debian_win32_cross, debian_win32_cross_wine)]
 
 with jobs_lock:
     # We do some basic dependency handling here: we start off all the -base images right away, then
@@ -510,20 +545,7 @@ with jobs_lock:
         for a in archlist:
             jobs.append(executor.submit(build_func, d, a))
 
-while True:
-    with jobs_lock:
-        if not jobs:
-            break
-        j = jobs.pop(0)
-
-    try:
-        j.result()
-    except (ChildProcessError, subprocess.CalledProcessError):
-        with jobs_lock:
-            failure = True
-            dep_jobs.clear()
-            for k in jobs:
-                k.cancel()
+finish_jobs()
 
 if failure:
     print("Error(s) occured, aborting!", file=sys.stderr)
