@@ -22,14 +22,17 @@ parser.add_option('--no-push', action="store_true",
 
 registry_base = 'registry.oxen.rocks/lokinet-ci-'
 
+playwright_tag = 'playwright:v1.37.0'
+
 distros = [*(('debian', x) for x in ('sid', 'stable', 'testing', 'bookworm', 'bullseye', 'buster')),
            *(('ubuntu', x) for x in ('rolling', 'lts', 'lunar', 'kinetic', 'jammy', 'focal', 'bionic')),
            *(('nodejs', x) for x in ('lts', 'current', '20', '18', '16', '14')),
+           *((playwright_tag, x) for x in ('jammy')),
            ]
 
 if options.distro:
     d = options.distro.split('-')
-    if len(d) != 2 or d[0] not in ('debian', 'ubuntu', 'nodejs') or not d[1]:
+    if len(d) != 2 or d[0] not in ('debian', 'ubuntu', 'nodejs', playwright_tag) or not d[1]:
         print(f"Bad --distro value '{options.distro}'", file=sys.stderr)
         sys.exit(1)
     else:
@@ -51,6 +54,9 @@ def arches(distro):
             print(f"Bad --distro value '{options.distro}'", file=sys.stderr)
             sys.exit(1)
         return [arch[1]]
+
+    if distro[0] == playwright_tag:
+        return ['amd64']
 
     a = ['amd64', 'arm64v8', 'arm32v7']
     if distro[0] == 'debian' or distro == ('ubuntu', 'bionic'):
@@ -379,6 +385,34 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
 """)
     check_done_build(tag)
 
+def playwright_build(distro, arch):
+
+    playwright_version = f"{distro[0]}-{distro[1]}"
+    # looks like the push tag forbids ":" in it, so let's remove it
+    playwright_version_push = f"{playwright_version.replace(':','')}"
+    tag = f"{registry_base}{playwright_version_push}"
+    build_tag(tag, arch, f"""
+FROM mcr.microsoft.com/{playwright_version}
+RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
+RUN apt-get -o=Dpkg::Use-Pty=0 remove -y --purge nodejs
+RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
+    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
+    && apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
+        cmake \
+        build-essential \
+        time
+
+ENV NVM_DIR /usr/local/nvm
+ENV NODE_VERSION 18.15.0
+ENV SESSION_DESKTOP_ROOT /root/session-desktop
+ENV NODE_PATH $NVM_DIR/v$NODE_VERSION/lib/node_modules
+ENV CI 1
+RUN mkdir -p /usr/local/nvm
+RUN curl https://raw.githubusercontent.com/creationix/nvm/v0.39.5/install.sh | bash && . $NVM_DIR/nvm.sh && nvm install $NODE_VERSION && nvm alias default $NODE_VERSION && nvm use default
+RUN git config --global --add safe.directory $SESSION_DESKTOP_ROOT
+""")
+    check_done_build(tag)
+
 
 
 def debian_win32_cross():
@@ -533,6 +567,8 @@ with jobs_lock:
         dep_jobs[prefix] = [len(archlist)]
         if d[0] == 'nodejs':
             build_func = nodejs_build
+        elif d[0] == playwright_tag:
+            build_func = playwright_build
         else:
             build_func = distro_build_base
             dep_jobs[prefix + "-base"] = [len(archlist), next_wave(distro_build_builder)]
