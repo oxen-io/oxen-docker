@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# There's definitely a better way to do this.
+
 # get lokinet's address
 if_name=lokitun0
 if_range=$(ip addr show $if_name | grep inet\  | sed 's/inet //' | cut -d' ' -f5)
