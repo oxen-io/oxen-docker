@@ -25,7 +25,7 @@ registry_base = 'registry.oxen.rocks/lokinet-ci-'
 playwright_tag = 'playwright:v1.37.0'
 
 distros = [*(('debian', x) for x in ('sid', 'stable', 'testing', 'bookworm', 'bullseye', 'buster')),
-           *(('ubuntu', x) for x in ('rolling', 'lts', 'lunar', 'kinetic', 'jammy', 'focal', 'bionic')),
+           *(('ubuntu', x) for x in ('rolling', 'lts', 'mantic', 'lunar', 'jammy', 'focal', 'bionic')),
            *(('nodejs', x) for x in ('lts', 'current', '20', '18', '16', '14')),
            *((playwright_tag, x) for x in ('jammy')),
            ]
