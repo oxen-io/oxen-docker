@@ -6,6 +6,7 @@ import optparse
 import sys
 from concurrent.futures import ThreadPoolExecutor
 import threading
+import requests
 
 parser = optparse.OptionParser()
 parser.add_option("--no-cache", action="store_true",
@@ -20,24 +21,26 @@ parser.add_option('--no-push', action="store_true",
 
 (options, args) = parser.parse_args()
 
-registry_base = 'registry.oxen.rocks/lokinet-ci-'
+registry_base = 'reg.oxen.rocks:80/'
+registry_insecure = True
 
 playwright_tag = 'playwright:v1.37.0'
 
+session_desktop_branches = ('unstable', 'clearnet', 'master')
+
+
 distros = [*(('debian', x) for x in ('sid', 'stable', 'testing', 'trixie', 'bookworm', 'bullseye', 'buster')),
-           *(('ubuntu', x) for x in ('rolling', 'lts', 'mantic', 'lunar', 'jammy', 'focal', 'bionic')),
-           *(('nodejs', x) for x in ('lts', 'current', '20', '18', '16', '14')),
+           *(('ubuntu', x) for x in ('rolling', 'lts', 'noble', 'mantic', 'lunar', 'jammy', 'focal', 'bionic')),
+           *(('session-desktop-builder', x) for x in session_desktop_branches),
            *((playwright_tag, x) for x in ('jammy', )),
            ]
 
 if options.distro:
-    d = options.distro.split('-')
-    if len(d) != 2 or d[0] not in ('debian', 'ubuntu', 'nodejs', playwright_tag) or not d[1]:
+    d = options.distro.rsplit('-', 1)
+    if len(d) != 2 or d[0] not in ('debian', 'ubuntu', playwright_tag, 'session-desktop-builder') or not d[1]:
         print(f"Bad --distro value '{options.distro}'", file=sys.stderr)
         sys.exit(1)
-    else:
-        distros = [(d[0], d[1].split('/')[0])]
-
+    distros = [(d[0], d[1].split('/')[0])]
 
 manifests = {}  # "image:latest": ["image/amd64", "image/arm64v8", ...]
 manifestlock = threading.Lock()
@@ -57,8 +60,11 @@ def arches(distro):
 
     if distro[0] == playwright_tag:
         return ['amd64']
+    if distro[0].startswith('session-desktop-builder'):
+        return ['amd64']  # FIXME: we ought to be able to remove this and use the below
 
-    a = ['amd64', 'arm64v8', 'arm32v7']
+
+    a = ['amd64', 'arm64v8']
     if distro[0] == 'debian' or distro == ('ubuntu', 'bionic'):
         a.append('i386')  # i386 builds don't work on later ubuntu, or on nodejs
     return a
@@ -120,7 +126,10 @@ def build_tag(tag_base, arch, contents, *, manifest_now=False):
         with open(dockerdir + '/Dockerfile', 'w') as f:
             f.write(contents)
 
+        old_tag_base = tag_base.replace("/", "/lokinet-ci-", 1)
+
         tag = f'{tag_base}/{arch}'
+        old_tag = f'{old_tag_base}/arch'
         print_line(myline,     f"\033[33;1mRebuilding        \033[35;1m{tag}\033[0m")
         run_or_report('docker', 'build', '--pull', '-t', tag,
                       *(('--no-cache',) if options.no_cache else ()), '.', myline=myline, cwd=dockerdir)
@@ -129,16 +138,23 @@ def build_tag(tag_base, arch, contents, *, manifest_now=False):
         else:
             print_line(myline, f"\033[33;1mPushing           \033[35;1m{tag}\033[0m")
             run_or_report('docker', 'push', tag, myline=myline)
+            run_or_report('docker', 'tag', tag, old_tag, myline=myline)
+            run_or_report('docker', 'push', old_tag, myline=myline)
 
         print_line(myline,     f"\033[32;1mFinished build    \033[35;1m{tag}\033[0m")
 
         latest = tag_base + ':latest'
+        old_latest = old_tag_base + ':latest'
         global manifests
         with manifestlock:
             if latest in manifests:
                 manifests[latest].append(tag)
             else:
                 manifests[latest] = [tag]
+            if old_latest in manifests:
+                manifests[old_latest].append(old_tag)
+            else:
+                manifests[old_latest] = [old_tag]
 
         if manifest_now:
             push_manifest(tag_base)
@@ -360,30 +376,77 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
 """, manifest_now=True)
 
 
-def nodejs_build(distro, arch):
+def session_desktop_builder(distro, arch):
     tag = f"{registry_base}{distro[0]}-{distro[1]}"
+
+    repo_base = f'https://raw.githubusercontent.com/oxen-io/session-desktop/{distro[1]}'
+    node_v = requests.get(f'{repo_base}/.nvmrc').content.decode()
+
+    extra_pre, cmake = '', 'cmake'
+    if tuple(map(int, node_v.split('.'))) >= (18, 16):
+        basedist = 'bookworm'
+    else:
+        basedist = 'bullseye'
+        extra_pre = f"""echo "deb http://deb.debian.org/debian bullseye-backports main" >/etc/apt/sources.list.d/bullseye-backports.list &&"""
+        cmake = 'cmake/bullseye-backports'
+
     build_tag(tag, arch, f"""
-FROM {arch}/node:{distro[1]}-bullseye
+FROM {arch}/node:{node_v}-{basedist}
 RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
 {'RUN dpkg --add-architecture i386' if arch == 'amd64' else ''}
-RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
+
+RUN {extra_pre} apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
         ccache \
-        cmake \
+        {cmake} \
         eatmydata \
         g++ \
         gdb \
         git \
+        jq \
         make \
         ninja-build \
         openssh-client \
         patch \
         pkg-config \
         rpm \
+        wget \
         {'wine32 wine' if arch == 'amd64' else ''}
+
+RUN apt-get -o=Dpkg::Use-Pty=0 -q install -y wget \
+    && mkdir /session-deps \
+    && cd /session-deps \
+    && wget {repo_base}/package.json \
+    && wget {repo_base}/yarn.lock \
+    && yarn install --frozen-lockfile --ignore-scripts \
+    && (cd node_modules/libsession_util_nodejs && yarn install --frozen-lockfile) \
+    && yarn patch-package \
+    && yarn electron-builder install-app-deps \
 """)
     check_done_build(tag)
+
+
+def session_desktop_playwright(distro, arch):
+    # Builds on the above with extra stuff needed for playwright
+    tag = f"{registry_base}{distro[0].replace('builder', 'playwright')}-{distro[1]}"
+
+    build_tag(tag, arch, f"""
+FROM {registry_base}session-desktop-builder-{distro[1]}
+
+RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
+        libasound2 \
+        libgbm1 \
+        libnotify4 \
+        libnss3 \
+        libxss1 \
+        libxtst6 \
+        xauth \
+        xvfb
+""")
+    check_done_build(tag)
+
+
 
 def playwright_build(distro, arch):
 
@@ -437,17 +500,10 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
         patch \
         pkg-config \
         qttools5-dev \
+        wine \
         zip \
     && update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix \
     && update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
-""", manifest_now=True)
-
-
-# Same as above, plus wine
-def debian_win32_cross_wine():
-    build_tag(f'{registry_base}debian-win32-cross-wine', 'amd64', f"""
-FROM {registry_base}debian-win32-cross/amd64
-RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y wine
 """, manifest_now=True)
 
 
@@ -477,7 +533,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
 """, manifest_now=True)
 
 
-def push_manifest(image):
+def push_manifest(image, lokinet_ci_alias=True):
     if options.no_push:
         return
 
@@ -493,12 +549,17 @@ def push_manifest(image):
         lineno += 1
         print()
 
+    manifest_extra = ['--insecure'] if registry_insecure else []
+
     subprocess.run(['docker', 'manifest', 'rm', latest], stderr=subprocess.DEVNULL, check=False)
     print_line(myline, f"\033[33;1mCreating manifest \033[35;1m{latest}\033[0m")
-    run_or_report('docker', 'manifest', 'create', latest, *tags, myline=myline)
+    run_or_report('docker', 'manifest', 'create', *manifest_extra, latest, *tags, myline=myline)
     print_line(myline, f"\033[33;1mPushing manifest  \033[35;1m{latest}\033[0m")
-    run_or_report('docker', 'manifest', 'push', latest, myline=myline)
+    run_or_report('docker', 'manifest', 'push', *manifest_extra, latest, myline=myline)
     print_line(myline, f"\033[32;1mFinished manifest \033[35;1m{latest}\033[0m")
+
+    if lokinet_ci_alias:
+        push_manifest(image.replace("/", "/lokinet-ci-", 1), lokinet_ci_alias=False)
 
 
 
@@ -536,7 +597,7 @@ finish_jobs()
 if options.distro:
     jobs = []
 else:
-    jobs = [executor.submit(b) for b in (android_builds, lint_build, debian_win32_cross, debian_win32_cross_wine)]
+    jobs = [executor.submit(b) for b in (android_builds, lint_build, debian_win32_cross)]
 
 with jobs_lock:
     # We do some basic dependency handling here: we start off all the -base images right away, then
@@ -565,10 +626,13 @@ with jobs_lock:
 
         prefix = f"{registry_base}{d[0]}-{d[1]}"
         dep_jobs[prefix] = [len(archlist)]
-        if d[0] == 'nodejs':
-            build_func = nodejs_build
+        if d[0] == 'session-desktop-builder':
+            build_func = session_desktop_builder
+            dep_jobs[prefix] = [len(archlist), next_wave(session_desktop_playwright)]
+
         elif d[0] == playwright_tag:
             build_func = playwright_build
+
         else:
             build_func = distro_build_base
             dep_jobs[prefix + "-base"] = [len(archlist), next_wave(distro_build_builder)]
