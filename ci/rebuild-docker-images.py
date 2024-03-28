@@ -317,8 +317,8 @@ FROM {registry_base}debian-sid/amd64
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 --no-install-recommends -q install -y \
-        clang clang-14 clang-15 clang-16 \
-        lld lld-14 lld-15 lld-16 \
+        clang clang-14 clang-15 clang-16 clang-17 clang-18 \
+        lld lld-14 lld-15 lld-16 lld-17 lld-18 \
         libc++-dev \
         libc++abi-dev
 """, manifest_now=True)
