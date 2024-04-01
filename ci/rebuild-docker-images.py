@@ -30,7 +30,9 @@ session_desktop_branches = ('unstable', 'clearnet', 'master')
 
 
 distros = [*(('debian', x) for x in ('sid', 'stable', 'testing', 'trixie', 'bookworm', 'bullseye', 'buster')),
-           *(('ubuntu', x) for x in ('rolling', 'lts', 'noble', 'mantic', 'lunar', 'jammy', 'focal', 'bionic')),
+           *(('ubuntu', x) for x in ('rolling', 'lts',
+               #'noble',
+               'mantic', 'lunar', 'jammy', 'focal', 'bionic')),
            *(('session-desktop-builder', x) for x in session_desktop_branches),
            *((playwright_tag, x) for x in ('jammy', )),
            ]
