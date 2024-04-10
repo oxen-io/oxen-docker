@@ -341,7 +341,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
         cmake \
         curl \
         git \
-        google-android-ndk-r25c-installer \
+        google-android-ndk-r26c-installer \
         libtool \
         make \
         openssh-client \
