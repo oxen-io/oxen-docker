@@ -354,6 +354,7 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && cp -a /tmp/android-sdk-licenses/*-license /usr/lib/android-sdk/licenses \
     && rm -rf /tmp/android-sdk-licenses
 """, manifest_now=True)
+
     build_tag(registry_base + 'flutter', 'amd64', f"""
 FROM {registry_base}android
 RUN cd /opt \
@@ -371,6 +372,7 @@ FROM {registry_base}debian-bookworm-base
 RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
     clang-format-14 \
     clang-format-15 \
+    clang-format-16 \
     eatmydata \
     git \
     jsonnet
@@ -413,9 +415,7 @@ RUN {extra_pre} apt-get -o=Dpkg::Use-Pty=0 -q update \
         pkg-config \
         rpm \
         wget \
-        {'wine32 wine' if arch == 'amd64' else ''}
-
-RUN apt-get -o=Dpkg::Use-Pty=0 -q install -y wget \
+        {'wine32 wine' if arch == 'amd64' else ''} \
     && mkdir /session-deps \
     && cd /session-deps \
     && wget {repo_base}/package.json \
@@ -438,6 +438,7 @@ FROM {registry_base}session-desktop-builder-{distro[1]}
 RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
         libasound2 \
         libgbm1 \
+        libgtk-3-0 \
         libnotify4 \
         libnss3 \
         libxss1 \
@@ -457,9 +458,9 @@ def playwright_build(distro, arch):
     tag = f"{registry_base}{playwright_version_push}"
     build_tag(tag, arch, f"""
 FROM mcr.microsoft.com/{playwright_version}
-RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
-RUN apt-get -o=Dpkg::Use-Pty=0 remove -y --purge nodejs
-RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
+RUN echo "man-db man-db/auto-update boolean false" | debconf-set-selections \
+    && apt-get -o=Dpkg::Use-Pty=0 remove -y --purge nodejs \
+    && apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
     && apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
         cmake \
@@ -471,9 +472,13 @@ ENV NODE_VERSION 18.15.0
 ENV SESSION_DESKTOP_ROOT /root/session-desktop
 ENV NODE_PATH $NVM_DIR/v$NODE_VERSION/lib/node_modules
 ENV CI 1
-RUN mkdir -p /usr/local/nvm
-RUN curl https://raw.githubusercontent.com/creationix/nvm/v0.39.5/install.sh | bash && . $NVM_DIR/nvm.sh && nvm install $NODE_VERSION && nvm alias default $NODE_VERSION && nvm use default
-RUN git config --global --add safe.directory $SESSION_DESKTOP_ROOT
+RUN mkdir -p /usr/local/nvm \
+        && curl https://raw.githubusercontent.com/creationix/nvm/v0.39.5/install.sh | bash \
+        && . $NVM_DIR/nvm.sh \
+        && nvm install $NODE_VERSION \
+        && nvm alias default $NODE_VERSION \
+        && nvm use default \
+        && git config --global --add safe.directory $SESSION_DESKTOP_ROOT
 """)
     check_done_build(tag)
 
