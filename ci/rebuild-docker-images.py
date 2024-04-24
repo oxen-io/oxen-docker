@@ -190,7 +190,8 @@ def check_done_build(tag):
 def distro_build_base(distro, arch, *, initial_debian=False):
     skip_build = not initial_debian and (distro, arch) in [
             (('debian', 'stable'), 'amd64'),
-            (('debian', 'bookworm'), 'amd64')]
+            (('debian', 'bookworm'), 'amd64'),
+            (('debian', 'sid'), 'amd64')]
 
     tag = f'{registry_base}{distro[0]}-{distro[1]}-base'
     codename = 'latest' if distro == ('ubuntu', 'lts') else distro[1]
@@ -325,12 +326,12 @@ RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
 """, manifest_now=True)
 
 
-# Android and flutter builds on top of debian-stable-base and adds a ton of android crap; we
+# Android and flutter builds on top of debian-sid-base and adds a ton of android crap; we
 # schedule this job as soon as the debian-sid-base/amd64 build finishes, because they easily take
 # the longest and are by far the biggest images.
 def android_builds():
     build_tag(registry_base + 'android', 'amd64', f"""
-FROM {registry_base}debian-stable-base
+FROM {registry_base}debian-sid-base
 RUN /bin/bash -c 'sed -i "s/main/main non-free/g" /etc/apt/sources.list.d/debian.sources'
 RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
     && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
@@ -590,11 +591,10 @@ executor = ThreadPoolExecutor(max_workers=max(options.parallel, 1))
 jobs = []
 
 
-# Start debian-stable-base/amd64 and debian-bookworm-base on their own, because other builds depend
-# on them and we want to get those (especially android/flutter) fired off as soon as possible
-# (because it's slow and huge).
+# Start some debian base builds on their own, because other builds depend on them and we want to get
+# those (especially android/flutter) fired off as soon as possible (because it's slow and huge).
 with jobs_lock:
-    for base in (('debian', 'stable'), ('debian', 'bookworm')):
+    for base in (('debian', 'stable'), ('debian', 'bookworm'), ('debian', 'sid')):
         if base in distros:
             jobs.append(executor.submit(distro_build_base, base, 'amd64', initial_debian=True))
 
