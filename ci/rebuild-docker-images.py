@@ -65,11 +65,9 @@ def arches(distro):
             sys.exit(1)
         return [arch[1]]
 
-    if distro[0] == playwright_tag:
+    if distro[0] == playwright_tag or distro[0].startswith('appium'):
         return ['amd64']
     if distro[0].startswith('session-desktop-builder'):
-        return ['amd64']  # FIXME: we ought to be able to remove this and use the below
-    if distro[0].startswith('appium'):
         return ['amd64']  # FIXME: we ought to be able to remove this and use the below
 
 
@@ -498,94 +496,136 @@ RUN mkdir -p /usr/local/nvm \
 
 def appium_build(distro, arch):
     tag = f"{registry_base}{distro[0]}-{distro[1]}"
-    build_tag(tag, arch, f"""
-FROM openjdk:18-ea-11-jdk-slim-bullseye
+    android_arch = 'x86_64' if arch == 'amd64' else arch
+    target = 'google_apis_playstore'
+    api_level = f"android-{distro[1]}"
+    build_tool_v = f"{distro[1]}.0.0"
+    emu_pkg = f"system-images;{api_level};{target};{android_arch}"
+    android_pkgs = (
+            emu_pkg,
+            f"platforms;{api_level}",
+            f"build-tools;{build_tool_v}",
+            "platform-tools",
+            "emulator")
+
+    cmd_tools="commandlinetools-linux-11076708_latest.zip"
+
+    emulator_name = "emulator1"
+    emulators = [
+            # (docker tag name, android device name) -- e.g. ('A', 'B') builds emulator device 'B' in the appium-A registry image.
+            ('pixel6', 'pixel_6')
+    ]
+
+    # TODO: Doing this in each android-sdk touching RUN ought to make the build result repeatable,
+    # but sadly it does not.  Figure out why, because being able to save time here when the sdk
+    # hasn't changed would be a big saving in storage and download time.
+    #touch_sdk = "find $ANDROID_SDK_ROOT -mmin -30 -exec touch -d '2024-01-01 00:00:00 UTC' {} \\;"
+
+    # Split these up into separate RUN layers because docker can't parallelize layer upload,
+    # download, compression, or decompression, but can parallelize separate layers.
+    android_pkg_installs = "\n".join(f'RUN eatmydata sdkmanager --verbose "{p}"' for p in android_pkgs)
+
+    build_tag(tag + '-base', 'amd64', f"""
+FROM {registry_base}debian-stable-base
 
 ENV HOME=/root \
     LANG=en_US.UTF-8 \
-    DEBIAN_FRONTEN=noninteractive \
+    DEBIAN_FRONTEND=noninteractive \
     LANGUAGE=en_US.UTF-8 \
     LC_ALL=C.UTF-8 \
     DISPLAY=:0.0 \
     DISPLAY_WIDTH=1920 \
-    DISPLAY_HEIGHT=900
+    DISPLAY_HEIGHT=900 \
+    ANDROID_SDK_ROOT=/opt/android \
+    DOCKER=true
+ENV PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/tools:$ANDROID_SDK_ROOT/cmdline-tools/tools/bin:$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/tools/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/build-tools/{build_tool_v}"
 
 
 WORKDIR /
 
 SHELL ["/bin/bash", "-c"]
 
-RUN apt-get update
-RUN apt install -y ca-certificates curl git cpu-checker supervisor vim bash wget unzip xvfb x11vnc fluxbox xterm novnc net-tools htop libpulse-dev libnss3 libxcursor1 libasound2 libqt5gui5 libc++-dev libxcb-cursor0 htop tree tar gzip
+# TODO: go through these to see which are actually needed for the build:
+RUN {apt_get_quiet} install -y eatmydata && \
+    {apt_get_quiet} install -y \
+        ca-certificates \
+        cpu-checker \
+        curl \
+        default-jdk-headless \
+        fluxbox \
+        git \
+        htop \
+        libarchive-tools \
+        libc++-dev \
+        libnss3 \
+        libpulse-dev \
+        libqt5gui5 \
+        libxcb-cursor0 \
+        libxcursor1 \
+        net-tools \
+        python3-pip \
+        python3-setuptools \
+        supervisor \
+        tree \
+        unzip \
+        vim \
+        wget \
+        x11vnc \
+        xterm \
+        xvfb
 
-
-ARG ARCH="x86_64"
-ARG TARGET="google_apis_playstore"
-ARG API_LEVEL="{distro[1]}"
-ARG BUILD_TOOLS="{distro[1]}.0.0"
-ARG ANDROID_API_LEVEL="android-$API_LEVEL"
-ARG ANDROID_APIS="$TARGET;$ARCH"
-ARG EMULATOR_PACKAGE="system-images;$ANDROID_API_LEVEL;$ANDROID_APIS"
-ARG PLATFORM_VERSION="platforms;$ANDROID_API_LEVEL"
-ARG BUILD_TOOL="build-tools;$BUILD_TOOLS"
-ARG ANDROID_CMD="commandlinetools-linux-11076708_latest.zip"
-ARG ANDROID_SDK_PACKAGES="$EMULATOR_PACKAGE $PLATFORM_VERSION $BUILD_TOOL platform-tools"
-
-ENV ANDROID_SDK_ROOT=/opt/android
-ENV PATH "$PATH:$ANDROID_SDK_ROOT/cmdline-tools/tools:$ANDROID_SDK_ROOT/cmdline-tools/tools/bin:$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/tools/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS"
-ENV DOCKER="true"
-
-#============================================
-# Install required Android CMD-line tools
-#============================================
-RUN wget https://dl.google.com/android/repository/$ANDROID_CMD -P /tmp && \
-              unzip -d $ANDROID_SDK_ROOT /tmp/$ANDROID_CMD && \
-              mkdir -p $ANDROID_SDK_ROOT/cmdline-tools/tools && cd $ANDROID_SDK_ROOT/cmdline-tools &&  mv NOTICE.txt source.properties bin lib tools/  && \
-              cd $ANDROID_SDK_ROOT/cmdline-tools/tools && ls
-
-#============================================
-# Install required package using SDK manager
-#============================================
-RUN yes Y | sdkmanager --licenses
-RUN yes Y | sdkmanager --verbose --no_https $ANDROID_SDK_PACKAGES
-
-#============================================
-# Create required emulators
-#============================================
-
-ARG EMULATOR_NAME="emulator1"
-ARG EMULATOR_DEVICE="pixel_6" # all emulators are created with the pixel 6 spec for now
-
-RUN yes | sdkmanager emulator
-RUN echo "no" | avdmanager --verbose create avd --force --name "$EMULATOR_NAME" --device "$EMULATOR_DEVICE" --package "$EMULATOR_PACKAGE"
 
 #==========================
 # Install node & yarn berry
 #==========================
 
 RUN curl -sL https://deb.nodesource.com/setup_18.x | bash && \
-    apt-get -qqy install nodejs && npm install -g yarn && corepack enable && \
+    eatmydata {apt_get_quiet} -y install nodejs && \
+    eatmydata npm install -g yarn && \
+    eatmydata corepack enable && \
     yarn set version 4.1.1
 
 
-# Install websokify and noVNC
-RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
-    python3 get-pip.py && \
-    pip3 install --no-cache-dir \
-        setuptools && \
-    pip3 install -U https://github.com/novnc/websockify/archive/refs/tags/v0.11.0.tar.gz
-
-RUN wget -O x11vnc.zip https://github.com/x11vnc/noVNC/archive/refs/heads/x11vnc.zip && \
-     unzip x11vnc.zip && mv noVNC-x11vnc /usr/local/noVNC/ && ls -la /usr/local/noVNC/utils && \
-    (chmod a+x /usr/local/noVNC/utils/launch.sh || \
-        (chmod a+x /usr/local/noVNC/utils/novnc_proxy && \
-         ln -s -f /usr/local/noVNC/utils/novnc_proxy /usr/local/noVNC/utils/launch.sh)) && \
-    rm -rf /tmp/* /var/tmp/*
+# Install websockify and noVNC
+# TODO: investigate whether the versions packaged in bookworm can be used
+RUN pip3 install --break-system-packages -U https://github.com/novnc/websockify/archive/refs/tags/v0.11.0.tar.gz
+RUN mkdir /usr/local/noVNC && \
+        curl -sSL https://github.com/x11vnc/noVNC/archive/refs/heads/x11vnc.zip \
+            | bsdtar xvf - --strip-components=1 -C /usr/local/noVNC && \
+            chmod a+x /usr/local/noVNC/utils/launch.sh
 
 
-""")
-    check_done_build(tag)
 
+#============================================
+# - Install required Android CMD-line tools
+# - update recent timestamps to make the layer more reproducible
+#============================================
+RUN mkdir -p $ANDROID_SDK_ROOT/cmdline-tools/tools && \
+        curl -sSL https://dl.google.com/android/repository/{cmd_tools} \
+            | eatmydata bsdtar xvf - --strip-components=1 -C $ANDROID_SDK_ROOT/cmdline-tools/tools && \
+        chmod a+x $ANDROID_SDK_ROOT/cmdline-tools/tools/bin/*
+
+#============================================
+# - Install required package using SDK manager
+# - update recent timestamps to make the layer more reproducible
+#============================================
+RUN yes Y | sdkmanager --licenses
+{android_pkg_installs}
+
+
+""", manifest_now=True)
+
+    for emutag, device in emulators:
+        build_tag(f"{tag}-{emutag}", 'amd64', f"""
+FROM {tag}-base
+
+#============================================
+# Create required emulators
+#============================================
+
+RUN echo "no" | avdmanager --verbose create avd --force --name "{emulator_name}" --device "{device}" --package "{emu_pkg}"
+
+""", manifest_now=True)
 
 
 def debian_win32_cross():
