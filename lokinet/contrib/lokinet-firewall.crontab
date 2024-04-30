@@ -1,3 +1,11 @@
+# it seems that the purpose of this cronjob is to download/apply a block list through iptables
+# This is problematic for several reasons
+# 1. Some legit IPs could be blocked and would be hard to find 
+# 2. Running it is not optional
+# 3. Rather than run in the 'container', it should run separately inside a privileged container using the host namespace, the reason being 
+# that the container is attached to DOCKER-USER chain instead of INPUT, the rules will be applied only to containers. 
+# any packets coming into the INPUT chain will bypass these rules that now reside under the FORWARD chain.
+
 # lokinet firewall cronjobs
 
 SHELL=/bin/bash
