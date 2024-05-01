@@ -18,6 +18,8 @@ parser.add_option("--distro", "-d", type="string", default="",
                        "e.g. debian-sid/amd64")
 parser.add_option('--no-push', action="store_true",
                   help="push built images to docker repository")
+parser.add_option('--debug', action="store_true",
+                  help="print docker build status to stdout; implies -j1")
 
 (options, args) = parser.parse_args()
 
@@ -27,6 +29,8 @@ registry_insecure = True
 playwright_tag = 'playwright:v1.37.0'
 
 session_desktop_branches = ('unstable', 'clearnet', 'master')
+
+apt_get_quiet = 'apt-get -o=Dpkg::Use-Pty=0 -q'
 
 
 distros = [*(('debian', x) for x in ('sid', 'stable', 'testing', 'trixie', 'bookworm', 'bullseye', 'buster')),
@@ -79,8 +83,8 @@ hacks = {
     registry_base + 'ubuntu-bionic-builder': """g++-8 gpg wget \
             && mkdir -p /usr/lib/x86_64-linux-gnu/pgm-5.2/include \
     && wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null \
-    && apt-get -o=Dpkg::Use-Pty=0 -q update \
-    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y """,
+    && {apt_get_quiet} update \
+    && {apt_get_quiet} dist-upgrade -y """,
 }
 
 
@@ -93,7 +97,7 @@ linelock = threading.Lock()
 def print_line(myline, value):
     linelock.acquire()
     global lineno
-    if sys.__stdout__.isatty():
+    if sys.__stdout__.isatty() and not options.debug:
         jump = lineno - myline
         print(f"\033[{jump}A\r\033[K{value}\033[{jump}B\r", end='')
         sys.stdout.flush()
@@ -103,17 +107,21 @@ def print_line(myline, value):
 
 
 def run_or_report(*args, myline, cwd=None):
+    stdout, stderr = (None, None) if options.debug else (subprocess.PIPE, subprocess.STDOUT)
     try:
         subprocess.run(
-            args, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf8', cwd=cwd)
+            args, check=True, stdout=stdout, stderr=stdout, encoding='utf8', cwd=cwd)
     except subprocess.CalledProcessError as e:
-        with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as log:
-            log.write(f"Error running {' '.join(args)}: {e}\n\nOutput:\n\n".encode())
-            log.write(e.output.encode())
-            global failure
-            failure = True
-            print_line(myline, f"\033[31;1mError! See {log.name} for details")
-            raise e
+        global failure
+        failure = True
+        if options.debug:
+            print_line(myline, f"\033[31;1mError! See debug log output for details")
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as log:
+                log.write(f"Error running {' '.join(args)}: {e}\n\nOutput:\n\n".encode())
+                log.write(e.output.encode())
+                print_line(myline, f"\033[31;1mError! See {log.name} for details")
+        raise e
 
 
 def build_tag(tag_base, arch, contents, *, manifest_now=False):
@@ -202,9 +210,9 @@ def distro_build_base(distro, arch, *, initial_debian=False):
         build_tag(tag, arch, f"""
 FROM {arch}/{distro[0]}:{codename}
 RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
-RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
-    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 -q autoremove -y
+RUN {apt_get_quiet} update \
+    && {apt_get_quiet} dist-upgrade -y \
+    && {apt_get_quiet} autoremove -y
 """, manifest_now=initial_debian)
 
     if not initial_debian:
@@ -221,9 +229,9 @@ def distro_build_builder(distro, arch):
     tag = f'{registry_base}{distro[0]}-{distro[1]}-builder'
     build_tag(tag, arch, f"""
 FROM {base}/{arch}
-RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
-    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 --no-install-recommends -q install -y \
+RUN {apt_get_quiet} update \
+    && {apt_get_quiet} dist-upgrade -y \
+    && {apt_get_quiet} --no-install-recommends install -y \
         ccache \
         devscripts \
         equivs \
@@ -246,9 +254,9 @@ def distro_build(distro, arch):
     tag = f'{registry_base}{distro[0]}-{distro[1]}'
     build_tag(tag, arch, f"""
 FROM {builder}/{arch}
-RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
-    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 --no-install-recommends -q install -y \
+RUN {apt_get_quiet} update \
+    && {apt_get_quiet} dist-upgrade -y \
+    && {apt_get_quiet} --no-install-recommends install -y \
         automake \
         ccache \
         cmake \
@@ -319,9 +327,9 @@ def debian_clang_build():
     tag = f'{registry_base}debian-sid-clang'
     build_tag(tag, 'amd64', f"""
 FROM {registry_base}debian-sid/amd64
-RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
-    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 --no-install-recommends -q install -y \
+RUN {apt_get_quiet} update \
+    && {apt_get_quiet} dist-upgrade -y \
+    && {apt_get_quiet} --no-install-recommends install -y \
         clang clang-14 clang-15 clang-16 clang-17 clang-18 \
         lld lld-14 lld-15 lld-16 lld-17 lld-18 \
         libc++-dev \
@@ -336,9 +344,9 @@ def android_builds():
     build_tag(registry_base + 'android', 'amd64', f"""
 FROM {registry_base}debian-sid-base
 RUN /bin/bash -c 'sed -i "s/main/main non-free/g" /etc/apt/sources.list.d/debian.sources'
-RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
-    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
+RUN {apt_get_quiet} update \
+    && {apt_get_quiet} dist-upgrade -y \
+    && {apt_get_quiet} install --no-install-recommends -y \
         android-sdk \
         automake \
         ccache \
@@ -373,7 +381,7 @@ RUN cd /opt \
 def lint_build():
     build_tag(registry_base + 'lint', 'amd64', f"""
 FROM {registry_base}debian-bookworm-base
-RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
+RUN {apt_get_quiet} install --no-install-recommends -y \
     clang-format-14 \
     clang-format-15 \
     clang-format-16 \
@@ -402,9 +410,9 @@ FROM {arch}/node:{node_v}-{basedist}
 RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
 {'RUN dpkg --add-architecture i386' if arch == 'amd64' else ''}
 
-RUN {extra_pre} apt-get -o=Dpkg::Use-Pty=0 -q update \
-    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
+RUN {extra_pre} {apt_get_quiet} update \
+    && {apt_get_quiet} dist-upgrade -y \
+    && {apt_get_quiet} install --no-install-recommends -y \
         ccache \
         {cmake} \
         eatmydata \
@@ -439,7 +447,7 @@ def session_desktop_playwright(distro, arch):
     build_tag(tag, arch, f"""
 FROM {registry_base}session-desktop-builder-{distro[1]}
 
-RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
+RUN {apt_get_quiet} install --no-install-recommends -y \
         libasound2 \
         libgbm1 \
         libgtk-3-0 \
@@ -463,10 +471,10 @@ def playwright_build(distro, arch):
     build_tag(tag, arch, f"""
 FROM mcr.microsoft.com/{playwright_version}
 RUN echo "man-db man-db/auto-update boolean false" | debconf-set-selections \
-    && apt-get -o=Dpkg::Use-Pty=0 remove -y --purge nodejs \
-    && apt-get -o=Dpkg::Use-Pty=0 -q update \
-    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
+    && {apt_get_quiet} remove -y --purge nodejs \
+    && {apt_get_quiet} update \
+    && {apt_get_quiet} dist-upgrade -y \
+    && {apt_get_quiet} install --no-install-recommends -y \
         cmake \
         build-essential \
         time
@@ -583,7 +591,7 @@ RUN wget -O x11vnc.zip https://github.com/x11vnc/noVNC/archive/refs/heads/x11vnc
 def debian_win32_cross():
     build_tag(f'{registry_base}debian-win32-cross', 'amd64', f"""
 FROM {registry_base}debian-stable-base/amd64
-RUN apt-get -o=Dpkg::Use-Pty=0 -q install --no-install-recommends -y \
+RUN {apt_get_quiet} install --no-install-recommends -y \
         autoconf \
         automake \
         build-essential \
@@ -618,9 +626,9 @@ def debian_cross_build():
 
     build_tag(tag, 'amd64', f"""
 FROM {registry_base}debian-stable/amd64
-RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
-    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 -q install -y {compilers}
+RUN {apt_get_quiet} update \
+    && {apt_get_quiet} dist-upgrade -y \
+    && {apt_get_quiet} install -y {compilers}
 """, manifest_now=True)
 
 
@@ -629,9 +637,9 @@ def build_docs():
 
     build_tag(f'{registry_base}docbuilder', 'amd64', f"""
 FROM {registry_base}debian-stable/amd64
-RUN apt-get -o=Dpkg::Use-Pty=0 -q update \
-    && apt-get -o=Dpkg::Use-Pty=0 -q dist-upgrade -y \
-    && apt-get -o=Dpkg::Use-Pty=0 -q install -y doxygen mkdocs curl zip unzip tar
+RUN {apt_get_quiet} update \
+    && {apt_get_quiet} dist-upgrade -y \
+    && {apt_get_quiet} install -y doxygen mkdocs curl zip unzip tar
 """, manifest_now=True)
 
 
@@ -682,7 +690,7 @@ def finish_jobs():
                     k.cancel()
 
 
-executor = ThreadPoolExecutor(max_workers=max(options.parallel, 1))
+executor = ThreadPoolExecutor(max_workers=1 if options.debug else max(options.parallel, 1))
 jobs = []
 
 
