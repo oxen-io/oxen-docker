@@ -33,10 +33,9 @@ session_desktop_branches = ('unstable', 'clearnet', 'master')
 apt_get_quiet = 'apt-get -o=Dpkg::Use-Pty=0 -q'
 
 
-distros = [*(('debian', x) for x in ('sid', 'stable', 'testing', 'trixie', 'bookworm', 'bullseye', 'buster')),
+distros = [*(('debian', x) for x in ('sid', 'stable', 'testing', 'trixie', 'bookworm', 'bullseye')),
            *(('ubuntu', x) for x in ('rolling', 'lts',
-               #'noble',
-               'mantic', 'lunar', 'jammy', 'focal', 'bionic')),
+               'oracular', 'noble', 'jammy', 'focal')),
            *(('session-desktop-builder', x) for x in session_desktop_branches),
            *((playwright_tag, x) for x in ('jammy', )),
            *(('appium', x) for x in ('34', )),
@@ -72,17 +71,14 @@ def arches(distro):
 
 
     a = ['amd64', 'arm64v8']
-    if distro[0] == 'debian' or distro == ('ubuntu', 'bionic'):
-        a.append('i386')  # i386 builds don't work on later ubuntu, or on nodejs
+    if distro[0] == 'debian'
+        a.append('i386')
+        a.append('arm32v7')
     return a
 
 
 hacks = {
-    registry_base + 'ubuntu-bionic-builder': """g++-8 gpg wget \
-            && mkdir -p /usr/lib/x86_64-linux-gnu/pgm-5.2/include \
-    && wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null \
-    && {apt_get_quiet} update \
-    && {apt_get_quiet} dist-upgrade -y """,
+#    registry_base + 'debian-example': "pkg1 pkg2 && mkdir -p /o/m/g"
 }
 
 
