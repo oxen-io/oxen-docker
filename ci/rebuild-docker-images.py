@@ -324,8 +324,9 @@ FROM {registry_base}debian-sid/amd64
 RUN {apt_get_quiet} update \
     && {apt_get_quiet} dist-upgrade -y \
     && {apt_get_quiet} --no-install-recommends install -y \
-        clang clang-14 clang-15 clang-16 clang-17 clang-18 \
-        lld lld-14 lld-15 lld-16 lld-17 lld-18 \
+        clang clang-14 clang-16 clang-17 clang-18 clang-19 \
+        lld lld-14 lld-16 lld-17 lld-18 lld-19 \
+        llvm llvm-14 llvm-16 llvm-17 llvm-18 llvm-19 \
         libc++-dev \
         libc++abi-dev
 """, manifest_now=True)
