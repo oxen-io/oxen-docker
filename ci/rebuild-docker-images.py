@@ -71,7 +71,7 @@ def arches(distro):
 
 
     a = ['amd64', 'arm64v8']
-    if distro[0] == 'debian'
+    if distro[0] == 'debian':
         a.append('i386')
         a.append('arm32v7')
     return a
