@@ -192,6 +192,15 @@ def check_done_build(tag):
                 q()
 
 
+def platform(arch):
+    if arch == 'arm64v8':
+        return '--platform=linux/arm64/v8'
+    if arch == 'arm32v7':
+        return '--platform=linux/arm/v7'
+    if arch == 'i386':
+        return '--platform=linux/386'
+    return ''
+
 def distro_build_base(distro, arch, *, initial_debian=False):
     skip_build = not initial_debian and (distro, arch) in [
             (('debian', 'stable'), 'amd64'),
@@ -202,7 +211,7 @@ def distro_build_base(distro, arch, *, initial_debian=False):
     codename = 'latest' if distro == ('ubuntu', 'lts') else distro[1]
     if not skip_build:
         build_tag(tag, arch, f"""
-FROM {arch}/{distro[0]}:{codename}
+FROM {platform(arch)} {arch}/{distro[0]}:{codename}
 RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
 RUN {apt_get_quiet} update \
     && {apt_get_quiet} dist-upgrade -y \
@@ -401,7 +410,7 @@ def session_desktop_builder(distro, arch):
         cmake = 'cmake/bullseye-backports'
 
     build_tag(tag, arch, f"""
-FROM {arch}/node:{node_v}-{basedist}
+FROM {platform(arch)} {arch}/node:{node_v}-{basedist}
 RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
 {'RUN dpkg --add-architecture i386' if arch == 'amd64' else ''}
 
