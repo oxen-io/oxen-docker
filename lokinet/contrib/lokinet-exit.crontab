@@ -1,3 +1,7 @@
+# This file could become redundant together with the usage of cron; since it's repeating continously - why not use an infinite loop for the address update?
+# 
+# lokinet-kill-scans.sh script seems like a bad idea .. details in the file
+
 # lokinet exit cronjobs
 
 SHELL=/bin/bash

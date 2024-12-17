@@ -1,3 +1,11 @@
+# where is logic.py coming from? 
+# /var/lib/lokinet-exit-provider/logic.py
+# what is the format/options of /data/lokinet-exit-broker.env / what are it's default contents?
+# I assume that it's an authentication server of some kind for the exit node
+# I could be wrong but I believe that this is meant to behave as a separate authenticaton server
+# if it is then when running without systemd, then maybe I'd want to run it in a separate container. 
+
+
 [Unit]
 Description=Lokinet authserv: exit authentication server
 Wants=network.target
