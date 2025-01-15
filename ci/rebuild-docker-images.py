@@ -7,6 +7,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 import threading
 import requests
+import shutil
 
 parser = optparse.OptionParser()
 parser.add_option("--no-cache", action="store_true",
@@ -118,7 +119,7 @@ def run_or_report(*args, myline, cwd=None):
         raise e
 
 
-def build_tag(tag_base, arch, contents, *, manifest_now=False):
+def build_tag(tag_base, arch, contents, *, manifest_now=False, prebuild_callback=None):
     if failure:
         raise ChildProcessError()
 
@@ -132,6 +133,9 @@ def build_tag(tag_base, arch, contents, *, manifest_now=False):
     with tempfile.TemporaryDirectory(dir='.') as dockerdir:
         with open(dockerdir + '/Dockerfile', 'w') as f:
             f.write(contents)
+
+        if prebuild_callback:
+            prebuild_callback(dockerdir)
 
         old_tag_base = tag_base.replace("/", "/lokinet-ci-", 1)
 
@@ -200,6 +204,7 @@ def platform(arch):
     if arch == 'i386':
         return '--platform=linux/386'
     return ''
+
 
 def distro_build_base(distro, arch, *, initial_debian=False):
     skip_build = not initial_debian and (distro, arch) in [
@@ -322,6 +327,30 @@ RUN {apt_get_quiet} update \
 """)
 
     check_done_build(tag)
+
+
+def gitcache_clone():
+    tag = f'{registry_base}clone'
+    def copy_clone_scripts(dockerdir):
+        shutil.copytree('clone-scripts', dockerdir + '/clone-scripts')
+
+    for arch in ('amd64', 'arm64v8'):
+        build_tag(tag, arch, f"""
+FROM {platform(arch)} {arch}/debian:bookworm-slim
+RUN /bin/bash -c 'echo "man-db man-db/auto-update boolean false" | debconf-set-selections'
+RUN {apt_get_quiet} update \
+    && {apt_get_quiet} install -y --no-install-recommends git git-lfs python3 python3-pip python3-portalocker python3-pytimeparse python3-coloredlogs bash \
+    && pip3 install --break-system-packages https://github.com/seeraven/gitcache/releases/download/v1.0.22/gitcache-1.0.22-py3-none-any.whl \
+    && ln -s gitcache /usr/local/bin/git \
+    && {apt_get_quiet} remove --autoremove --purge -y python3-pip \
+    && {apt_get_quiet} clean \
+    && rm -rf /var/cache/apt/lists/*
+ADD clone-scripts/* /usr/local/bin/
+ENTRYPOINT ["/usr/local/bin/clone"]
+""",
+        prebuild_callback=copy_clone_scripts)
+
+    push_manifest(tag)
 
 
 def debian_clang_build():
@@ -752,7 +781,7 @@ finish_jobs()
 if options.distro:
     jobs = []
 else:
-    jobs = [executor.submit(b) for b in (android_builds, lint_build, debian_win32_cross)]
+    jobs = [executor.submit(b) for b in (gitcache_clone, android_builds, lint_build, debian_win32_cross)]
 
 with jobs_lock:
     # We do some basic dependency handling here: we start off all the -base images right away, then
