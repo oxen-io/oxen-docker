@@ -357,7 +357,7 @@ RUN {apt_get_quiet} update \
         cmake \
         curl \
         git \
-        google-android-ndk-r26c-installer \
+        google-android-ndk-r27c-installer \
         libtool \
         make \
         openssh-client \
