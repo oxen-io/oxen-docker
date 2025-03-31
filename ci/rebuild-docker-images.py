@@ -21,6 +21,8 @@ parser.add_option('--no-push', action="store_true",
                   help="push built images to docker repository")
 parser.add_option('--debug', action="store_true",
                   help="print docker build status to stdout; implies -j1")
+parser.add_option('--keep-going', action="store_true",
+                  help="Don't stop after an image build failure")
 
 (options, args) = parser.parse_args()
 
@@ -116,7 +118,8 @@ def run_or_report(*args, myline, cwd=None):
                 log.write(f"Error running {' '.join(args)}: {e}\n\nOutput:\n\n".encode())
                 log.write(e.output.encode())
                 print_line(myline, f"\033[31;1mError! See {log.name} for details")
-        raise e
+        if not options.keep_going:
+            raise e
 
 
 def build_tag(tag_base, arch, contents, *, manifest_now=False, prebuild_callback=None):
@@ -418,6 +421,7 @@ RUN {apt_get_quiet} install --no-install-recommends -y \
     clang-format-14 \
     clang-format-15 \
     clang-format-16 \
+    clang-format-19 \
     eatmydata \
     git \
     jsonnet
