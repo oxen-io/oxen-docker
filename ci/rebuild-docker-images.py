@@ -31,7 +31,7 @@ registry_insecure = True
 
 playwright_tag = 'playwright:v1.37.0'
 
-session_desktop_branches = ('dev' 'master')
+session_desktop_branches = ('dev', 'master')
 
 apt_get_quiet = 'apt-get -o=Dpkg::Use-Pty=0 -q'
 
