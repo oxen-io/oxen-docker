@@ -389,15 +389,17 @@ RUN {apt_get_quiet} update \
         cmake \
         curl \
         git \
-        google-android-ndk-r26c-installer \
+        google-android-ndk-r27c-installer \
         libtool \
         make \
+        openjdk-17-jdk \
         openssh-client \
         patch \
         pkg-config \
         wget \
         xz-utils \
         zip \
+    && update-java-alternatives -s java-1.17.0-openjdk-amd64 \
     && git clone https://github.com/Shadowstyler/android-sdk-licenses.git /tmp/android-sdk-licenses \
     && cp -a /tmp/android-sdk-licenses/*-license /usr/lib/android-sdk/licenses \
     && rm -rf /tmp/android-sdk-licenses
