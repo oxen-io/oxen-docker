@@ -433,7 +433,7 @@ RUN {apt_get_quiet} install --no-install-recommends -y \
 def session_desktop_builder(distro, arch):
     tag = f"{registry_base}{distro[0]}-{distro[1]}"
 
-    repo_base = f'https://raw.githubusercontent.com/oxen-io/session-desktop/{distro[1]}'
+    repo_base = f'https://raw.githubusercontent.com/session-foundation/session-desktop/{distro[1]}'
     node_v = requests.get(f'{repo_base}/.nvmrc').content.decode().strip()
 
     extra_pre, cmake = '', 'cmake'
